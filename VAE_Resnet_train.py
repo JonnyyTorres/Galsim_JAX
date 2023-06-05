@@ -9,6 +9,7 @@ import wandb
 import subprocess
 import os
 import msgpack
+import logging
 
 from jax.lib import xla_bridge
 from astropy.stats import mad_std
@@ -20,63 +21,19 @@ from flax.serialization import (
     to_state_dict, msgpack_serialize, from_bytes
 )
 from tqdm.auto import tqdm
+from absl import app
+from absl import flags
 
-#Checking for GPU access
-print('Device: {}'.format(xla_bridge.get_backend().platform))
+logging.getLogger('tfds').setLevel(logging.ERROR)
 
-# Checking the GPU available
-gpus = jax.devices('gpu')
-print('Number of avaliable devices : {}'.format(len(gpus)))
+flags.DEFINE_string("dataset", "hsc_photoz", "Suite of simulations to learn from")
+# flags.DEFINE_string("output_dir", "./weights/gp-sn1v5", "Folder where to store model.")
+flags.DEFINE_integer("batch_size", 64, "Size of the batch to train on.")
+flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for the optimizer.")
+flags.DEFINE_integer("training_steps", 25000, "Number of training steps to run.")
+# flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
 
-# Ensure TF does not see GPU and grab all GPU memory.
-tf.config.set_visible_devices([], device_type='GPU')
-
-# Loading the dataset and transforming it to NumPy Arrays
-train_dset, info = tfds.load(name="hsc_photoz", with_info=True, split='train')
-
-# What's in our dataset:
-# info
-
-# Let's collect a few examples to check their distributions
-cutouts=[]
-specz = []
-for (batch, entry) in enumerate(train_dset.take(1000)):
-    specz.append(entry['attrs']['specz_redshift'])
-    cutouts.append(entry['image'])
-
-cutouts = np.stack(cutouts)
-specz = np.stack(specz)
-
-scaling = []
-
-for i,b in enumerate(['g', 'r', 'i', 'z', 'y']):
-    sigma = mad_std(cutouts[...,i].flatten()) # Capturing the std devation of each band
-    scaling.append(sigma)
-
-# Using a mapping function to apply preprocessing to our data
-def preprocessing(example):
-    img = tf.math.asinh(example['image'] / tf.constant(scaling) / 3. )
-    # We return the image as our input and output for a generative model
-    return img
-
-def input_fn(mode='train', batch_size=64):
-    """
-    mode: 'train' or 'test'
-    """
-    if mode == 'train':
-        dataset = tfds.load('hsc_photoz', split='train[:80%]')
-        dataset = dataset.repeat()
-        dataset = dataset.shuffle(10000)
-    else:
-        dataset = tfds.load('hsc_photoz', split='train[80%:]')
-    
-    dataset = dataset.batch(batch_size, drop_remainder=True)
-    dataset = dataset.map(preprocessing) # Apply data preprocessing
-    dataset = dataset.prefetch(-1) # fetch next batches while training current one (-1 for autotune)
-    return dataset
-
-# Dataset as a numpy iterator
-dset = input_fn().as_numpy_iterator()
+FLAGS = flags.FLAGS
 
 # Loading distributions and bijectors from TensorFlow Probability (JAX version)
 tfd = tfp.distributions
@@ -147,25 +104,6 @@ class ResNetEnc(nn.Module):
         
         return q
     
-prob_output = False
-
-Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock, prob_output=prob_output)
-
-# Generating a random key for JAX
-rng = random.PRNGKey(0)
-# Size of the input to initialize the parameters
-batch_enc = jnp.ones((1, 64, 64, 5))
-# Initializing the VAE
-params = Encoder.init(rng, batch_enc)
-
-# Taking 64 images of the dataset
-batch_im = next(dset)
-# Generating new keys to use them for inference
-rng_1, rng_2 = random.split(rng)
-
-z = Encoder.apply(params, batch_im)
-
-# print(z)
 
 class ResNetBlockD(nn.Module):
     """Creates a block of a CNN with ResNet architecture to decode images."""
@@ -217,95 +155,6 @@ class ResNetDec(nn.Module):
 
         return r
 
-Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
-
-# print(z)
-
-# Generating a random key for JAX
-rng = random.PRNGKey(0)
-
-# Generating new keys to use them for inference
-rng_1, rng_2 = random.split(rng)
-
-if prob_output:
-    code_sample = z.sample(seed=rng_2) 
-
-else:
-    code_sample = z
-    
-# Size of the input to initialize the parameters
-batch_dec = jnp.ones((1, 4, 4, 64))
-
-# Initializing the resnet_dec
-params = Decoder.init(rng_2, batch_dec)
-
-# Decoding the image
-decoded_img = Decoder.apply(params, code_sample)
-
-# print(decoded_img)
-
-
-# Generating a random key for JAX
-rng = random.PRNGKey(0)
-# Size of the input to initialize the parameters
-batch_enc = jnp.ones((1, 64, 64, 5))
-# Initializing the VAE
-Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock, prob_output=prob_output)
-params_enc = Encoder.init(rng, batch_enc)
-
-# Taking 64 images of the dataset
-batch_im = next(dset)
-# Generating new keys to use them for inference
-rng, rng_1 = random.split(rng)
-
-# Size of the input to initialize the parameters
-batch_dec = jnp.ones((1, 4, 4, 64))
-
-# Initializing the resnet_dec
-Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
-params_dec = Decoder.init(rng, batch_dec)
-
-@jax.jit
-def loss_fn(params, rng_key, batch, kl_reg_w): #state, rng_key, batch):
-    
-    params_enc, params_dec = params
-    
-    x = batch
-
-    # Autoencode an example
-    q = Encoder.apply(params_enc, x)
-    
-    # # Sample from the posterior
-    # z = q.sample(seed=rng_key)
-    
-#     # Apply or not KL divergence
-#     p = lax.cond(kl_reg_w > 0, prob_branch, pure_branch, (rng_key, q, params_dec), (q, params_dec))
-    
-    # Decode the sample
-    p = Decoder.apply(params_dec, q)
-
-    # KL divergence between the prior distribution and p
-    kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 64, 64, 5))))
-    
-    # Compute log-likelihood
-    log_likelihood = p.log_prob(x)
-    
-    # Calculating the ELBO value
-    elbo = log_likelihood - kl_reg_w*0.0001*kl # Here we apply a regularization factor on the KL term
-    
-    loss = -elbo.mean()
-    return loss
-
-# Apply Regularization
-if prob_output:
-    kl_reg_w = 1
-else:
-    kl_reg_w = 0
-
-# Defining a general list of the parameters
-params = [params_enc, params_dec]
-# Veryfing that the 'value_and_grad' works fine
-loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
 
 def lr_schedule(step):
     """Linear scaling rule optimized for 90 epochs."""
@@ -318,42 +167,6 @@ def lr_schedule(step):
     index = jnp.sum(boundaries < step)
     return jnp.take(values, index)
 
-
-optimizer = optax.chain(
-      optax.adam(1e-3),
-      optax.scale_by_schedule(lr_schedule))
-
-opt_state = optimizer.init(params)
-
-@jax.jit
-def update(params, rng_key, opt_state, batch):
-    """Single SGD update step."""
-    loss, grads = jax.value_and_grad(loss_fn)(params, rng_key, batch, kl_reg_w)
-    updates, new_opt_state = optimizer.update(grads, opt_state)
-    new_params = optax.apply_updates(params, updates)
-    return loss, new_params, new_opt_state 
-
-loss, params, opt_state = update(params, rng, opt_state, batch_im)
-
-# Login to wandb
-wandb.login()
-
-# Initializing a Weights & Biases Run
-wandb.init(
-    project="galsim-jax-resnet",
-    name="first-model",
-)
-
-# Setting the configs of our experiment using `wandb.config`.
-# This way, Weights & Biases automatcally syncs the configs of 
-# our experiment which could be used to reproduce the results of an experiment.
-config = wandb.config
-config.seed = 42
-config.batch_size = 64
-# config.validation_split = 0.2
-# config.pooling = "avg"
-config.learning_rate = 1e-3
-config.epochs = 25000
 
 def get_git_commit_version():
     """"Allows to get the Git commit version to tag each experiment"""
@@ -395,57 +208,267 @@ def load_checkpoint(ckpt_file, state):
     return from_bytes(state, byte_data)
 
 
-losses = []
-losses_test = []
-losses_test_epoch = []
-best_eval_loss = 1e6
 
-kl_reg = False
+def main(_):
+    
+    # Checking for GPU access
+    print('Device: {}'.format(xla_bridge.get_backend().platform))
 
-# Train the model as many epochs as indicated initially
-for epoch in tqdm(range(1, config.epochs + 1)):
-    rng, rng_1 = random.split(rng)
+    # Checking the GPU available
+    gpus = jax.devices('gpu')
+    print('Number of avaliable devices : {}'.format(len(gpus)))
+
+    # Ensure TF does not see GPU and grab all GPU memory.
+    tf.config.set_visible_devices([], device_type='GPU')
+
+    # Loading the dataset and transforming it to NumPy Arrays
+    train_dset, info = tfds.load(name=FLAGS.dataset, with_info=True, split='train')
+
+    # What's in our dataset:
+    # info
+
+    # Let's collect a few examples to check their distributions
+    cutouts=[]
+    specz = []
+    for (batch, entry) in enumerate(train_dset.take(1000)):
+        specz.append(entry['attrs']['specz_redshift'])
+        cutouts.append(entry['image'])
+
+    cutouts = np.stack(cutouts)
+    specz = np.stack(specz)
+
+    scaling = []
+
+    for i,b in enumerate(['g', 'r', 'i', 'z', 'y']):
+        sigma = mad_std(cutouts[...,i].flatten()) # Capturing the std devation of each band
+        scaling.append(sigma)
+
+    # Using a mapping function to apply preprocessing to our data
+    def preprocessing(example):
+        img = tf.math.asinh(example['image'] / tf.constant(scaling) / 3. )
+        # We return the image as our input and output for a generative model
+        return img
+
+    def input_fn(mode='train', batch_size=FLAGS.batch_size):
+        """
+        mode: 'train' or 'test'
+        """
+        if mode == 'train':
+            dataset = tfds.load(FLAGS.dataset, split='train[:80%]')
+            dataset = dataset.repeat()
+            dataset = dataset.shuffle(10000)
+        else:
+            dataset = tfds.load(FLAGS.dataset, split='train[80%:]')
+        
+        dataset = dataset.batch(batch_size, drop_remainder=True)
+        dataset = dataset.map(preprocessing) # Apply data preprocessing
+        dataset = dataset.prefetch(-1) # fetch next batches while training current one (-1 for autotune)
+        return dataset
+    
+    # Dataset as a numpy iterator
+    dset = input_fn().as_numpy_iterator()
+
+    prob_output = False
+
+    '''Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock, prob_output=prob_output)
+
+    # Generating a random key for JAX
+    rng = random.PRNGKey(0)
+    # Size of the input to initialize the parameters
+    batch_enc = jnp.ones((1, 64, 64, 5))
+    # Initializing the VAE
+    params = Encoder.init(rng, batch_enc)
+
+    # Taking 64 images of the dataset
     batch_im = next(dset)
-    loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
-    losses.append(loss)
-     
-    # Log metrics inside your training loop to visualize model performance
-    wandb.log({ 
-        "loss": loss,
-        }, step=epoch)
+    # Generating new keys to use them for inference
+    rng_1, rng_2 = random.split(rng)
+
+    z = Encoder.apply(params, batch_im)
+
+    # print(z)
     
-    # Saving checkpoint
-    if loss < best_eval_loss:
-        best_eval_loss = loss
-        save_checkpoint("checkpoint.msgpack", params, epoch)
-    
-    # Calculating the loss for all the test images 
-    if epoch % 2500 == 0 :
+    Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
 
-        dataset_eval = input_fn('test')
-        test_iterator = dataset_eval.as_numpy_iterator()
+    # print(z)
 
-        for_list_mean = []
+    # Generating a random key for JAX
+    rng = random.PRNGKey(0)
 
-        for img in test_iterator:
-            rng, rng_1 = random.split(rng)
-            loss_test = loss_fn(params, rng_1, img, kl_reg_w)
-            for_list_mean.append(loss_test)
+    # Generating new keys to use them for inference
+    rng_1, rng_2 = random.split(rng)
 
-        losses_test.append(np.mean(for_list_mean))
-        losses_test_epoch.append(epoch)
+    if prob_output:
+        code_sample = z.sample(seed=rng_2) 
+
+    else:
+        code_sample = z
         
+    # Size of the input to initialize the parameters
+    batch_dec = jnp.ones((1, 4, 4, 64))
+
+    # Initializing the resnet_dec
+    params = Decoder.init(rng_2, batch_dec)
+
+    # Decoding the image
+    decoded_img = Decoder.apply(params, code_sample)
+
+    # print(decoded_img)'''
+
+
+    # Generating a random key for JAX
+    rng = random.PRNGKey(0)
+    # Size of the input to initialize the parameters
+    batch_enc = jnp.ones((1, 64, 64, 5))
+    # Initializing the VAE
+    Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock, prob_output=prob_output)
+    params_enc = Encoder.init(rng, batch_enc)
+
+    # Taking 64 images of the dataset
+    batch_im = next(dset)
+    # Generating new keys to use them for inference
+    rng, rng_1 = random.split(rng)
+
+    # Size of the input to initialize the parameters
+    batch_dec = jnp.ones((1, 4, 4, 64))
+
+    # Initializing the resnet_dec
+    Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
+    params_dec = Decoder.init(rng, batch_dec)
+
+     # Defining a general list of the parameters
+    params = [params_enc, params_dec]
+
+    # Initialisation
+    optimizer = optax.chain(
+        optax.adam(FLAGS.learning_rate),
+        optax.scale_by_schedule(lr_schedule))
+
+    opt_state = optimizer.init(params)
+
+    @jax.jit
+    def loss_fn(params, rng_key, batch, kl_reg_w): #state, rng_key, batch):
+        
+        params_enc, params_dec = params
+        
+        x = batch
+
+        # Autoencode an example
+        q = Encoder.apply(params_enc, x)
+        
+        # # Sample from the posterior
+        # z = q.sample(seed=rng_key)
+        
+    #     # Apply or not KL divergence
+    #     p = lax.cond(kl_reg_w > 0, prob_branch, pure_branch, (rng_key, q, params_dec), (q, params_dec))
+        
+        # Decode the sample
+        p = Decoder.apply(params_dec, q)
+
+        # KL divergence between the prior distribution and p
+        kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 64, 64, 5))))
+        
+        # Compute log-likelihood
+        log_likelihood = p.log_prob(x)
+        
+        # Calculating the ELBO value
+        elbo = log_likelihood - kl_reg_w*0.0001*kl # Here we apply a regularization factor on the KL term
+        
+        loss = -elbo.mean()
+        return loss
+
+    # Apply Regularization
+    if prob_output:
+        kl_reg_w = 1
+    else:
+        kl_reg_w = 0
+
+    '''    # Veryfing that the 'value_and_grad' works fine
+    loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
+    '''
+
+    @jax.jit
+    def update(params, rng_key, opt_state, batch):
+        """Single SGD update step."""
+        loss, grads = jax.value_and_grad(loss_fn)(params, rng_key, batch, kl_reg_w)
+        updates, new_opt_state = optimizer.update(grads, opt_state)
+        new_params = optax.apply_updates(params, updates)
+        return loss, new_params, new_opt_state 
+
+    loss, params, opt_state = update(params, rng, opt_state, batch_im)
+
+    # Login to wandb
+    wandb.login()
+
+    # Initializing a Weights & Biases Run
+    wandb.init(
+        project="galsim-jax-resnet",
+        name="first-model",
+    )
+
+    # Setting the configs of our experiment using `wandb.config`.
+    # This way, Weights & Biases automatcally syncs the configs of 
+    # our experiment which could be used to reproduce the results of an experiment.
+    config = wandb.config
+    config.seed = 42
+    config.batch_size = FLAGS.batch_size
+    # config.validation_split = 0.2
+    # config.pooling = "avg"
+    config.learning_rate = FLAGS.learning_rate
+    config.epochs = FLAGS.training_steps
+    
+    losses = []
+    losses_test = []
+    losses_test_epoch = []
+    best_eval_loss = 1e6
+
+    # Train the model as many epochs as indicated initially
+    for epoch in tqdm(range(1, config.epochs + 1)):
+        rng, rng_1 = random.split(rng)
+        batch_im = next(dset)
+        loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
+        losses.append(loss)
+        
+        # Log metrics inside your training loop to visualize model performance
         wandb.log({ 
-        "test_loss": losses_test[-1],
-        }, step=epoch)
-            
-        print("Epoch: {}, loss: {:.2f}, loss test: {:.2f}".format(epoch, loss, losses_test[-1]))
+            "loss": loss,
+            }, step=epoch)
         
-params = load_checkpoint("checkpoint.msgpack", params)
+        # Saving checkpoint
+        if loss < best_eval_loss:
+            best_eval_loss = loss
+            save_checkpoint("checkpoint.msgpack", params, epoch)
+        
+        # Calculating the loss for all the test images 
+        if epoch % 2500 == 0 :
+
+            dataset_eval = input_fn('test')
+            test_iterator = dataset_eval.as_numpy_iterator()
+
+            for_list_mean = []
+
+            for img in test_iterator:
+                rng, rng_1 = random.split(rng)
+                loss_test = loss_fn(params, rng_1, img, kl_reg_w)
+                for_list_mean.append(loss_test)
+
+            losses_test.append(np.mean(for_list_mean))
+            losses_test_epoch.append(epoch)
             
-loss_min = min(losses)
-best_epoch = losses.index(loss_min) + 1
+            wandb.log({ 
+            "test_loss": losses_test[-1],
+            }, step=epoch)
+                
+            print("Epoch: {}, loss: {:.2f}, loss test: {:.2f}".format(epoch, loss, losses_test[-1]))
+            
+    params = load_checkpoint("checkpoint.msgpack", params)
+                
+    loss_min = min(losses)
+    best_epoch = losses.index(loss_min) + 1
 
-print("\nBest Epoch: {}, loss: {:.2f}".format(best_epoch, loss_min))
+    print("\nBest Epoch: {}, loss: {:.2f}".format(best_epoch, loss_min))
 
-wandb.finish()
+    wandb.finish()
+
+if __name__ == "__main__":
+  app.run(main)
