@@ -32,6 +32,8 @@ flags.DEFINE_integer("batch_size", 64, "Size of the batch to train on.")
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for the optimizer.")
 flags.DEFINE_integer("training_steps", 25000, "Number of training steps to run.")
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
+flags.DEFINE_boolean('prob_output', False, 'The encoder has or not a probabilistic output')
+
 
 FLAGS = flags.FLAGS
 
@@ -176,15 +178,6 @@ def get_git_commit_version():
     except subprocess.CalledProcessError:
         return None
 
-# # Call the function to get the Git commit version
-# commit_version = get_git_commit_version()
-
-# if commit_version:
-#     print("Git commit version:", commit_version)
-# else:
-#     print("Unable to get Git commit version.")
-
-
 def save_checkpoint(ckpt_path, state, epoch):
     """Saves a Wandb checkpoint."""
     with open(ckpt_path, "wb") as outfile:
@@ -230,7 +223,7 @@ def main(_):
     # Let's collect a few examples to check their distributions
     cutouts=[]
     specz = []
-    for (batch, entry) in enumerate(train_dset.take(1000)):
+    for entry in train_dset.take(1000):
         specz.append(entry['attrs']['specz_redshift'])
         cutouts.append(entry['image'])
 
@@ -239,7 +232,7 @@ def main(_):
 
     scaling = []
 
-    for i,b in enumerate(['g', 'r', 'i', 'z', 'y']):
+    for i,_ in enumerate(['g', 'r', 'i', 'z', 'y']):
         sigma = mad_std(cutouts[...,i].flatten()) # Capturing the std devation of each band
         scaling.append(sigma)
 
@@ -268,59 +261,14 @@ def main(_):
     # Dataset as a numpy iterator
     dset = input_fn().as_numpy_iterator()
 
-    prob_output = False
-
-    '''Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock, prob_output=prob_output)
+    prob_output = FLAGS.prob_output
 
     # Generating a random key for JAX
     rng = random.PRNGKey(0)
     # Size of the input to initialize the parameters
     batch_enc = jnp.ones((1, 64, 64, 5))
-    # Initializing the VAE
-    params = Encoder.init(rng, batch_enc)
 
-    # Taking 64 images of the dataset
-    batch_im = next(dset)
-    # Generating new keys to use them for inference
-    rng_1, rng_2 = random.split(rng)
-
-    z = Encoder.apply(params, batch_im)
-
-    # print(z)
-    
-    Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
-
-    # print(z)
-
-    # Generating a random key for JAX
-    rng = random.PRNGKey(0)
-
-    # Generating new keys to use them for inference
-    rng_1, rng_2 = random.split(rng)
-
-    if prob_output:
-        code_sample = z.sample(seed=rng_2) 
-
-    else:
-        code_sample = z
-        
-    # Size of the input to initialize the parameters
-    batch_dec = jnp.ones((1, 4, 4, 64))
-
-    # Initializing the resnet_dec
-    params = Decoder.init(rng_2, batch_dec)
-
-    # Decoding the image
-    decoded_img = Decoder.apply(params, code_sample)
-
-    # print(decoded_img)'''
-
-
-    # Generating a random key for JAX
-    rng = random.PRNGKey(0)
-    # Size of the input to initialize the parameters
-    batch_enc = jnp.ones((1, 64, 64, 5))
-    # Initializing the VAE
+    # Initializing the Encoder
     Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock, prob_output=prob_output)
     params_enc = Encoder.init(rng, batch_enc)
 
@@ -332,7 +280,7 @@ def main(_):
     # Size of the input to initialize the parameters
     batch_dec = jnp.ones((1, 4, 4, 64))
 
-    # Initializing the resnet_dec
+    # Initializing the Decoder
     Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
     params_dec = Decoder.init(rng, batch_dec)
 
@@ -348,6 +296,7 @@ def main(_):
 
     @jax.jit
     def loss_fn(params, rng_key, batch, kl_reg_w): #state, rng_key, batch):
+        """Function to define the loss function"""
         
         params_enc, params_dec = params
         
@@ -377,11 +326,8 @@ def main(_):
         loss = -elbo.mean()
         return loss
 
-    # Apply Regularization
-    if prob_output:
-        kl_reg_w = 1
-    else:
-        kl_reg_w = 0
+    # Apply KL Regularization
+    kl_reg_w = 1 if prob_output else 0
 
     '''    # Veryfing that the 'value_and_grad' works fine
     loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
@@ -434,7 +380,7 @@ def main(_):
             "loss": loss,
             }, step=epoch)
         
-        # Saving checkpoint
+        # Saving best checkpoint
         if loss < best_eval_loss:
             best_eval_loss = loss
             save_checkpoint("checkpoint.msgpack", params, epoch)
