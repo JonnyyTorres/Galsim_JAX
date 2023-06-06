@@ -23,6 +23,7 @@ from flax.serialization import (
 from tqdm.auto import tqdm
 from absl import app
 from absl import flags
+# from jax import lax
 
 logging.getLogger('tfds').setLevel(logging.ERROR)
 
@@ -70,7 +71,7 @@ class ResNetEnc(nn.Module):
     num_blocks : tuple = (1, 1, 1)
     c_hidden : tuple = (64, 128, 256)
     latent_dim : int = 64
-    prob_output : bool = True # If True, the output will be an image instead of a 
+    # prob_output : bool = True # If True, the output will be an image instead of a 
                                # probability distribution
 
     @nn.compact
@@ -91,18 +92,13 @@ class ResNetEnc(nn.Module):
                                      act_fn=self.act_fn,
                                      subsample=subsample)(x, train=train)
        
-        if self.prob_output:
-            net = nn.Dense(features=self.latent_dim*2)(x)
-            # Image is now 4x4x128
-            print("Dense shape", net.shape, "\n")
-            
-            q = tfd.MultivariateNormalDiag(loc=net[..., :self.latent_dim], 
-                               scale_diag=net[..., self.latent_dim:])
-        else:
-            net = nn.Dense(features=self.latent_dim)(x)
-            print("Dense shape", net.shape, "\n")
-            # Image is now 4x4x64
-            q = net        
+
+        net = nn.Dense(features=self.latent_dim*2)(x)
+        # Image is now 4x4x128
+        print("Dense shape", net.shape, "\n")
+        
+        q = tfd.MultivariateNormalDiag(loc=net[..., :self.latent_dim], 
+                            scale_diag=net[..., self.latent_dim:])
         
         return q
     
@@ -269,7 +265,7 @@ def main(_):
     batch_enc = jnp.ones((1, 64, 64, 5))
 
     # Initializing the Encoder
-    Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock, prob_output=prob_output)
+    Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock)
     params_enc = Encoder.init(rng, batch_enc)
 
     # Taking 64 images of the dataset
@@ -282,7 +278,7 @@ def main(_):
 
     # Initializing the Decoder
     Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
-    params_dec = Decoder.init(rng, batch_dec)
+    params_dec = Decoder.init(rng_1, batch_dec)
 
      # Defining a general list of the parameters
     params = [params_enc, params_dec]
@@ -304,15 +300,12 @@ def main(_):
 
         # Autoencode an example
         q = Encoder.apply(params_enc, x)
-        
-        # # Sample from the posterior
-        # z = q.sample(seed=rng_key)
-        
-    #     # Apply or not KL divergence
-    #     p = lax.cond(kl_reg_w > 0, prob_branch, pure_branch, (rng_key, q, params_dec), (q, params_dec))
+
+        # Sample from the posterior
+        z = q.sample(seed=rng_key)
         
         # Decode the sample
-        p = Decoder.apply(params_dec, q)
+        p = Decoder.apply(params_dec, z)
 
         # KL divergence between the prior distribution and p
         kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 64, 64, 5))))
@@ -341,7 +334,7 @@ def main(_):
         new_params = optax.apply_updates(params, updates)
         return loss, new_params, new_opt_state 
 
-    loss, params, opt_state = update(params, rng, opt_state, batch_im)
+    loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
 
     # Login to wandb
     wandb.login()
@@ -366,6 +359,10 @@ def main(_):
     losses = []
     losses_test = []
     losses_test_epoch = []
+
+    # log_liks = []
+    # log_liks_test = []
+
     best_eval_loss = 1e6
 
     # Train the model as many epochs as indicated initially
@@ -374,6 +371,7 @@ def main(_):
         batch_im = next(dset)
         loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
         losses.append(loss)
+        # log_liks.append(log_likelihood)
         
         # Log metrics inside your training loop to visualize model performance
         wandb.log({ 
@@ -400,6 +398,7 @@ def main(_):
 
             losses_test.append(np.mean(for_list_mean))
             losses_test_epoch.append(epoch)
+            # log_liks_test.append(log_liks_test)
             
             wandb.log({ 
             "test_loss": losses_test[-1],
@@ -415,6 +414,8 @@ def main(_):
     print("\nBest Epoch: {}, loss: {:.2f}".format(best_epoch, loss_min))
 
     wandb.finish()
+
+    # print(log_liks)
 
 if __name__ == "__main__":
   app.run(main)
