@@ -27,13 +27,14 @@ from absl import flags
 
 logging.getLogger('tfds').setLevel(logging.ERROR)
 
+# flags.DEFINE_string("input_folder", "/data/tensorflow_datasets/", "Location of the input images")
 flags.DEFINE_string("dataset", "hsc_photoz", "Suite of simulations to learn from")
 # flags.DEFINE_string("output_dir", "./weights/gp-sn1v5", "Folder where to store model.")
 flags.DEFINE_integer("batch_size", 64, "Size of the batch to train on.")
 flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for the optimizer.")
 flags.DEFINE_integer("training_steps", 25000, "Number of training steps to run.")
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
-flags.DEFINE_boolean('prob_output', False, 'The encoder has or not a probabilistic output')
+flags.DEFINE_boolean('prob_output', True, 'The encoder has or not a probabilistic output')
 
 
 FLAGS = flags.FLAGS
@@ -199,6 +200,8 @@ def load_checkpoint(ckpt_file, state):
 
 
 def main(_):
+
+    # os.chdir(FLAGS.input_folder)
     
     # Checking for GPU access
     print('Device: {}'.format(xla_bridge.get_backend().platform))
@@ -257,7 +260,11 @@ def main(_):
     # Dataset as a numpy iterator
     dset = input_fn().as_numpy_iterator()
 
+    # Defining if we want a probabilistic output or not
     prob_output = FLAGS.prob_output
+
+    # Defining KL regularization values based in prob_output
+    kl_reg = [0.1**(x+1) for x in range(4)] if prob_output else [0]
 
     # Generating a random key for JAX
     rng = random.PRNGKey(0)
@@ -290,130 +297,138 @@ def main(_):
 
     opt_state = optimizer.init(params)
 
-    @jax.jit
-    def loss_fn(params, rng_key, batch, kl_reg_w): #state, rng_key, batch):
-        """Function to define the loss function"""
-        
-        params_enc, params_dec = params
-        
-        x = batch
+    for reg in kl_reg:
 
-        # Autoencode an example
-        q = Encoder.apply(params_enc, x)
+        @jax.jit
+        def loss_fn(params, rng_key, batch, kl_reg_w, reg_term): #state, rng_key, batch):
+            """Function to define the loss function"""
+            
+            params_enc, params_dec = params
+            
+            x = batch
 
-        # Sample from the posterior
-        z = q.sample(seed=rng_key)
-        
-        # Decode the sample
-        p = Decoder.apply(params_dec, z)
+            # Autoencode an example
+            q = Encoder.apply(params_enc, x)
 
-        # KL divergence between the prior distribution and p
-        kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 64, 64, 5))))
-        
-        # Compute log-likelihood
-        log_likelihood = p.log_prob(x)
-        
-        # Calculating the ELBO value
-        elbo = log_likelihood - kl_reg_w*0.0001*kl # Here we apply a regularization factor on the KL term
-        
-        loss = -elbo.mean()
-        return loss
+            # Sample from the posterior
+            z = q.sample(seed=rng_key)
+            
+            # Decode the sample
+            p = Decoder.apply(params_dec, z)
 
-    # Apply KL Regularization
-    kl_reg_w = 1 if prob_output else 0
+            # KL divergence between the prior distribution and p
+            kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 64, 64, 5))))
+            
+            # Compute log-likelihood
+            log_likelihood = p.log_prob(x)
+            
+            # Calculating the ELBO value
+            elbo = log_likelihood - kl_reg_w*reg_term*kl # Here we apply a regularization factor on the KL term
+            
+            loss = -elbo.mean()
+            return loss
 
-    '''    # Veryfing that the 'value_and_grad' works fine
-    loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
-    '''
+        # Apply KL Regularization
+        kl_reg_w = 1 if prob_output else 0
 
-    @jax.jit
-    def update(params, rng_key, opt_state, batch):
-        """Single SGD update step."""
-        loss, grads = jax.value_and_grad(loss_fn)(params, rng_key, batch, kl_reg_w)
-        updates, new_opt_state = optimizer.update(grads, opt_state)
-        new_params = optax.apply_updates(params, updates)
-        return loss, new_params, new_opt_state 
+        '''    # Veryfing that the 'value_and_grad' works fine
+        loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
+        '''
 
-    loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
+        @jax.jit
+        def update(params, rng_key, opt_state, batch):
+            """Single SGD update step."""
+            loss, grads = jax.value_and_grad(loss_fn)(params, rng_key, batch, kl_reg_w, reg)
+            updates, new_opt_state = optimizer.update(grads, opt_state)
+            new_params = optax.apply_updates(params, updates)
+            return loss, new_params, new_opt_state 
 
-    # Login to wandb
-    wandb.login()
-
-    # Initializing a Weights & Biases Run
-    wandb.init(
-        project="galsim-jax-resnet",
-        name="first-model",
-    )
-
-    # Setting the configs of our experiment using `wandb.config`.
-    # This way, Weights & Biases automatcally syncs the configs of 
-    # our experiment which could be used to reproduce the results of an experiment.
-    config = wandb.config
-    config.seed = 42
-    config.batch_size = FLAGS.batch_size
-    # config.validation_split = 0.2
-    # config.pooling = "avg"
-    config.learning_rate = FLAGS.learning_rate
-    config.epochs = FLAGS.training_steps
-    
-    losses = []
-    losses_test = []
-    losses_test_epoch = []
-
-    # log_liks = []
-    # log_liks_test = []
-
-    best_eval_loss = 1e6
-
-    # Train the model as many epochs as indicated initially
-    for epoch in tqdm(range(1, config.epochs + 1)):
-        rng, rng_1 = random.split(rng)
-        batch_im = next(dset)
         loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
-        losses.append(loss)
-        # log_liks.append(log_likelihood)
+
+        # Login to wandb
+        wandb.login()
+
+        # Initializing a Weights & Biases Run
+        wandb.init(
+            project="galsim-jax-resnet",
+            name="first-model",
+            # tags="kl_reg={:.4f}".format(reg),
+        )
+
+        # run.tags.append("kl_reg={:.4f}".format(reg))
+        # run.update()
+
+        # Setting the configs of our experiment using `wandb.config`.
+        # This way, Weights & Biases automatcally syncs the configs of 
+        # our experiment which could be used to reproduce the results of an experiment.
+        config = wandb.config
+        config.seed = 42
+        config.batch_size = FLAGS.batch_size
+        # config.validation_split = 0.2
+        # config.pooling = "avg"
+        config.learning_rate = FLAGS.learning_rate
+        config.epochs = FLAGS.training_steps
+        config.using_kl = True if prob_output else False
+        config.kl_reg = reg if prob_output else None
         
-        # Log metrics inside your training loop to visualize model performance
-        wandb.log({ 
-            "loss": loss,
-            }, step=epoch)
-        
-        # Saving best checkpoint
-        if loss < best_eval_loss:
-            best_eval_loss = loss
-            save_checkpoint("checkpoint.msgpack", params, epoch)
-        
-        # Calculating the loss for all the test images 
-        if epoch % 2500 == 0 :
+        losses = []
+        losses_test = []
+        losses_test_epoch = []
 
-            dataset_eval = input_fn('test')
-            test_iterator = dataset_eval.as_numpy_iterator()
+        # log_liks = []
+        # log_liks_test = []
 
-            for_list_mean = []
+        best_eval_loss = 1e6
 
-            for img in test_iterator:
-                rng, rng_1 = random.split(rng)
-                loss_test = loss_fn(params, rng_1, img, kl_reg_w)
-                for_list_mean.append(loss_test)
-
-            losses_test.append(np.mean(for_list_mean))
-            losses_test_epoch.append(epoch)
-            # log_liks_test.append(log_liks_test)
+        # Train the model as many epochs as indicated initially
+        for epoch in tqdm(range(1, config.epochs + 1)):
+            rng, rng_1 = random.split(rng)
+            batch_im = next(dset)
+            loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
+            losses.append(loss)
+            # log_liks.append(log_likelihood)
             
+            # Log metrics inside your training loop to visualize model performance
             wandb.log({ 
-            "test_loss": losses_test[-1],
-            }, step=epoch)
-                
-            print("Epoch: {}, loss: {:.2f}, loss test: {:.2f}".format(epoch, loss, losses_test[-1]))
+                "loss": loss,
+                }, step=epoch)
             
-    params = load_checkpoint("checkpoint.msgpack", params)
+            # Saving best checkpoint
+            if loss < best_eval_loss:
+                best_eval_loss = loss
+                save_checkpoint("checkpoint.msgpack", params, epoch)
+            
+            # Calculating the loss for all the test images 
+            if epoch % 2500 == 0 :
+
+                dataset_eval = input_fn('test')
+                test_iterator = dataset_eval.as_numpy_iterator()
+
+                for_list_mean = []
+
+                for img in test_iterator:
+                    rng, rng_1 = random.split(rng)
+                    loss_test = loss_fn(params, rng_1, img, kl_reg_w, reg)
+                    for_list_mean.append(loss_test)
+
+                losses_test.append(np.mean(for_list_mean))
+                losses_test_epoch.append(epoch)
+                # log_liks_test.append(log_liks_test)
                 
-    loss_min = min(losses)
-    best_epoch = losses.index(loss_min) + 1
+                wandb.log({ 
+                "test_loss": losses_test[-1],
+                }, step=epoch)
+                    
+                print("Epoch: {}, loss: {:.2f}, loss test: {:.2f}".format(epoch, loss, losses_test[-1]))
+                
+        params = load_checkpoint("checkpoint.msgpack", params)
+                    
+        loss_min = min(losses)
+        best_epoch = losses.index(loss_min) + 1
 
-    print("\nBest Epoch: {}, loss: {:.2f}".format(best_epoch, loss_min))
+        print("\nBest Epoch: {}, loss: {:.2f}".format(best_epoch, loss_min))
 
-    wandb.finish()
+        wandb.finish()
 
     # print(log_liks)
 
