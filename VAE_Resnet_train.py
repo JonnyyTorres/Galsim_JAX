@@ -266,38 +266,39 @@ def main(_):
     # Defining KL regularization values based in prob_output
     kl_reg = [0.1**(x+1) for x in range(4)] if prob_output else [0]
 
-    # Generating a random key for JAX
-    rng = random.PRNGKey(0)
-    # Size of the input to initialize the parameters
-    batch_enc = jnp.ones((1, 64, 64, 5))
-
-    # Initializing the Encoder
-    Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock)
-    params_enc = Encoder.init(rng, batch_enc)
-
-    # Taking 64 images of the dataset
-    batch_im = next(dset)
-    # Generating new keys to use them for inference
-    rng, rng_1 = random.split(rng)
-
-    # Size of the input to initialize the parameters
-    batch_dec = jnp.ones((1, 4, 4, 64))
-
-    # Initializing the Decoder
-    Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
-    params_dec = Decoder.init(rng_1, batch_dec)
-
-     # Defining a general list of the parameters
-    params = [params_enc, params_dec]
-
-    # Initialisation
-    optimizer = optax.chain(
-        optax.adam(FLAGS.learning_rate),
-        optax.scale_by_schedule(lr_schedule))
-
-    opt_state = optimizer.init(params)
-
+    # Running the model as much times as KL regularization values
     for reg in kl_reg:
+
+        # Generating a random key for JAX
+        rng = random.PRNGKey(0)
+        # Size of the input to initialize the parameters
+        batch_enc = jnp.ones((1, 64, 64, 5))
+
+        # Initializing the Encoder
+        Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock)
+        params_enc = Encoder.init(rng, batch_enc)
+
+        # Taking 64 images of the dataset
+        batch_im = next(dset)
+        # Generating new keys to use them for inference
+        rng, rng_1 = random.split(rng)
+
+        # Size of the input to initialize the parameters
+        batch_dec = jnp.ones((1, 4, 4, 64))
+
+        # Initializing the Decoder
+        Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
+        params_dec = Decoder.init(rng_1, batch_dec)
+
+        # Defining a general list of the parameters
+        params = [params_enc, params_dec]
+
+        # Initialisation
+        optimizer = optax.chain(
+            optax.adam(FLAGS.learning_rate),
+            optax.scale_by_schedule(lr_schedule))
+
+        opt_state = optimizer.init(params)
 
         @jax.jit
         def loss_fn(params, rng_key, batch, kl_reg_w, reg_term): #state, rng_key, batch):
