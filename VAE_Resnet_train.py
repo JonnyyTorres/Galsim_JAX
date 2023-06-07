@@ -10,6 +10,8 @@ import subprocess
 import os
 import msgpack
 import logging
+import matplotlib.pyplot as plt
+import datetime
 
 from jax.lib import xla_bridge
 from astropy.stats import mad_std
@@ -153,7 +155,18 @@ class ResNetDec(nn.Module):
                                       scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
 
         return r
-
+    
+def create_folder(folder_path='results'):
+    try:
+        # Create folder if it doesn't exist
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+            print(f"Folder created: {folder_path}")
+        else:
+            # Folder already exists
+            print("Folder already exists!")
+    except Exception as e:
+        print(f"Error creating folder: {str(e)}")
 
 def lr_schedule(step):
     """Linear scaling rule optimized for 90 epochs."""
@@ -175,21 +188,21 @@ def get_git_commit_version():
     except subprocess.CalledProcessError:
         return None
 
-def save_checkpoint(ckpt_path, state, epoch):
+def save_checkpoint(ckpt_path, state, step):
     """Saves a Wandb checkpoint."""
     with open(ckpt_path, "wb") as outfile:
         outfile.write(msgpack_serialize(to_state_dict(state)))
     artifact = wandb.Artifact(
-        f'{wandb.run.name}-checkpoint', type='model'
+        f'{wandb.run.id}-checkpoint', type='model'
     )
     artifact.add_file(ckpt_path)
-    wandb.log_artifact(artifact, aliases=["best", f"epoch_{epoch}", f"commit_{get_git_commit_version()}"])
+    wandb.log_artifact(artifact, aliases=["best", f"step_{step}", f"commit_{get_git_commit_version()}"])
 
 
 def load_checkpoint(ckpt_file, state):
     """Loads the best Wandb checkpoint."""
     artifact = wandb.use_artifact(
-        f'{wandb.run.name}-checkpoint:best'
+        f'{wandb.run.id}-checkpoint:best'
     )
     artifact_dir = artifact.download()
     ckpt_path = os.path.join(artifact_dir, ckpt_file)
@@ -197,6 +210,76 @@ def load_checkpoint(ckpt_file, state):
         byte_data = data_file.read()
     return from_bytes(state, byte_data)
 
+def save_plot_as_image(folder_path, plot_title, x_data, y_data, plot_type='loglog', file_name='plot.png', **kwargs):
+    # Generate plot based on plot_type
+    if plot_type == 'line':
+        plt.plot(x_data, y_data, **kwargs)
+    elif plot_type == 'loglog':
+        plt.loglog(x_data, y_data, **kwargs)
+    elif plot_type == 'semilogy':
+        plt.semilogy(x_data, y_data, **kwargs)
+    elif plot_type == 'semilogx':
+        plt.semilogx(x_data, y_data, **kwargs)
+    elif plot_type == 'scatter':
+        plt.scatter(x_data, y_data, **kwargs)
+    else:
+        print("Invalid plot type!")
+        return
+
+    plt.title(plot_title)
+    plt.xlabel('Step')
+    plt.ylabel('Value')
+
+    # Save plot as image within the folder
+    file_path = os.path.join(folder_path, file_name)
+    plt.savefig(file_path)
+    wandb.log({"{}".format(file_name.split('.')[0]): wandb.Image(plt)})
+    plt.close()
+
+    print(f"Plot saved as {file_path}")
+
+def save_samples(folder_path, z, batch):
+    # Plotting the original and estimated image for 15 examples
+    plt.figure(figsize=(6,2))
+    for i in range(15):
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(9,3))
+        ax1.imshow(batch[i,...].mean(axis=-1))
+        ax1.axis('off')
+        ax2.imshow(z[i,...].mean(axis=-1))
+        ax2.axis('off')
+        ax3.imshow(z[i,...].mean(axis=-1) - batch[i,...].mean(axis=-1))
+        ax3.axis('off')
+        fig.suptitle('Comparison between original and predicted images', fontsize=12)
+    # Save plot as image within the folder
+    file_path = os.path.join(folder_path, "difference_pred.png")
+    plt.savefig(file_path)
+    wandb.log({"difference_pred": wandb.Image(plt)})
+    plt.close()
+
+    print(f"Plot saved as {file_path}")
+
+    # 16 images of the estimated shape of galaxies
+    plt.figure(figsize=(10,10))
+    for i in range(4):
+        for j in range(4):
+            plt.subplot(4,4,i+4*j+1)
+            plt.imshow(z[i+4*j,...].mean(axis=-1))
+            plt.axis('off')
+    plt.title('Samples of predicted galaxies', fontsize=12)
+
+    # Save plot as image within the folder
+    file_path = os.path.join(folder_path, "samples_pred.png")
+    plt.savefig(file_path)
+    wandb.log({"samples_pred": wandb.Image(plt)})
+    plt.close()
+
+    print(f"Plot saved as {file_path}")
+
+def get_date_time():
+    current_datetime = datetime.datetime.now()
+    formatted_datetime = current_datetime.strftime("%Y%m%d_%H%M%S")
+
+    return formatted_datetime
 
 
 def main(_):
@@ -301,7 +384,7 @@ def main(_):
         opt_state = optimizer.init(params)
 
         @jax.jit
-        def loss_fn(params, rng_key, batch, kl_reg_w, reg_term): #state, rng_key, batch):
+        def loss_fn(params, rng_key, batch, reg_term): #state, rng_key, batch):
             """Function to define the loss function"""
             
             params_enc, params_dec = params
@@ -324,13 +407,13 @@ def main(_):
             log_likelihood = p.log_prob(x)
             
             # Calculating the ELBO value
-            elbo = log_likelihood - kl_reg_w*reg_term*kl # Here we apply a regularization factor on the KL term
+            elbo = log_likelihood - reg_term*kl # Here we apply a regularization factor on the KL term
             
             loss = -elbo.mean()
-            return loss
+            return loss, -log_likelihood.mean()
 
-        # Apply KL Regularization
-        kl_reg_w = 1 if prob_output else 0
+        # # Apply KL Regularization
+        # kl_reg_w = 1 if prob_output else 0
 
         '''    # Veryfing that the 'value_and_grad' works fine
         loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
@@ -339,12 +422,12 @@ def main(_):
         @jax.jit
         def update(params, rng_key, opt_state, batch):
             """Single SGD update step."""
-            loss, grads = jax.value_and_grad(loss_fn)(params, rng_key, batch, kl_reg_w, reg)
+            (loss, log_likelihood), grads = jax.value_and_grad(loss_fn, has_aux=True)(params, rng_key, batch, reg)
             updates, new_opt_state = optimizer.update(grads, opt_state)
             new_params = optax.apply_updates(params, updates)
-            return loss, new_params, new_opt_state 
+            return loss, log_likelihood, new_params, new_opt_state 
 
-        loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
+        '''loss, log_likelihood, params, opt_state = update(params, rng_1, opt_state, batch_im)'''
 
         # Login to wandb
         wandb.login()
@@ -368,39 +451,40 @@ def main(_):
         # config.validation_split = 0.2
         # config.pooling = "avg"
         config.learning_rate = FLAGS.learning_rate
-        config.epochs = FLAGS.training_steps
+        config.steps = FLAGS.training_steps
         config.using_kl = True if prob_output else False
         config.kl_reg = reg if prob_output else None
         
         losses = []
         losses_test = []
-        losses_test_epoch = []
+        losses_test_step = []
 
-        # log_liks = []
-        # log_liks_test = []
+        log_liks = []
+        log_liks_test = []
 
         best_eval_loss = 1e6
 
-        # Train the model as many epochs as indicated initially
-        for epoch in tqdm(range(1, config.epochs + 1)):
+        # Train the model as many steps as indicated initially
+        for step in tqdm(range(1, config.steps + 1)):
             rng, rng_1 = random.split(rng)
             batch_im = next(dset)
-            loss, params, opt_state = update(params, rng_1, opt_state, batch_im)
+            loss, log_likelihood, params, opt_state = update(params, rng_1, opt_state, batch_im)
             losses.append(loss)
-            # log_liks.append(log_likelihood)
+            log_liks.append(log_likelihood)
             
             # Log metrics inside your training loop to visualize model performance
             wandb.log({ 
                 "loss": loss,
-                }, step=epoch)
+                "log_likelihood": log_likelihood,
+                }, step=step)
             
             # Saving best checkpoint
             if loss < best_eval_loss:
                 best_eval_loss = loss
-                save_checkpoint("checkpoint.msgpack", params, epoch)
+                save_checkpoint("checkpoint.msgpack", params, step)
             
             # Calculating the loss for all the test images 
-            if epoch % 2500 == 0 :
+            if step % 2500 == 0 :
 
                 dataset_eval = input_fn('test')
                 test_iterator = dataset_eval.as_numpy_iterator()
@@ -409,25 +493,85 @@ def main(_):
 
                 for img in test_iterator:
                     rng, rng_1 = random.split(rng)
-                    loss_test = loss_fn(params, rng_1, img, kl_reg_w, reg)
+                    loss_test, log_likelihood_test = loss_fn(params, rng_1, img, reg)
                     for_list_mean.append(loss_test)
 
                 losses_test.append(np.mean(for_list_mean))
-                losses_test_epoch.append(epoch)
-                # log_liks_test.append(log_liks_test)
+                losses_test_step.append(step)
+                log_liks_test.append(log_likelihood_test)
                 
                 wandb.log({ 
                 "test_loss": losses_test[-1],
-                }, step=epoch)
+                "test_log_likelihood": log_liks_test[-1],
+                }, step=step)
                     
-                print("Epoch: {}, loss: {:.2f}, loss test: {:.2f}".format(epoch, loss, losses_test[-1]))
+                print("Step: {}, loss: {:.2f}, loss test: {:.2f}".format(step, loss, losses_test[-1]))
                 
         params = load_checkpoint("checkpoint.msgpack", params)
                     
         loss_min = min(losses)
-        best_epoch = losses.index(loss_min) + 1
+        best_step = losses.index(loss_min) + 1
 
-        print("\nBest Epoch: {}, loss: {:.2f}".format(best_epoch, loss_min))
+        total_steps = np.arange(1, config.steps+1)
+
+        print("\nBest Step: {}, loss: {:.2f}".format(best_step, loss_min))
+
+        # Getting the date and time of the experiment
+        datetime = get_date_time()
+        # Creating the 'results' folder to save all the plots as images (or validating that the folder already exists)
+
+        results_folder = 'results/run-{}-{}'.format(datetime, wandb.run.id)
+        create_folder(results_folder)
+
+        # Saving the loss plots
+        save_plot_as_image(folder_path=results_folder, 
+                           plot_title='Loglog of the Loss function - Train',
+                           x_data=total_steps,  
+                           y_data=losses, 
+                           plot_type='loglog', 
+                           file_name='loglog_loss.png')
+        save_plot_as_image(folder_path=results_folder, 
+                           plot_title='Loglog of the Loss function - Test', 
+                           x_data=losses_test_step, 
+                           y_data=losses_test, 
+                           plot_type='loglog', 
+                           file_name='loglog_loss_test.png')
+        
+        # Saving the log-likelihood plots
+        save_plot_as_image(folder_path=results_folder, 
+                           plot_title='Loglog of the Log-likelihood - Train',
+                           x_data=total_steps, 
+                           y_data=log_liks, 
+                           plot_type='loglog', 
+                           file_name='loglog_log_likelihood.png')
+        save_plot_as_image(folder_path=results_folder, 
+                           plot_title='Loglog of the Log-likelihood - Test', 
+                           x_data=losses_test_step,
+                           y_data=log_liks_test, 
+                           plot_type='loglog', 
+                           file_name='loglog_log_likelihood_test.png')
+        
+        # Predicting over an example of data
+        dataset_eval = input_fn('test')
+        test_iterator = dataset_eval.as_numpy_iterator()
+        batch = next(test_iterator)
+        # Taking 16 images as example
+        batch = batch[:16,...]
+
+        # Dividing the list of parameters obtained before
+        params_enc, params_dec = params
+        # Distribution of latent space calculated using the batch of data
+        q = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock).apply(params_enc, batch)
+        # Sampling from the distribution
+        z = q.sample(seed=rng_1)
+
+        # Posterior distribution
+        p = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD).apply(params_dec, z)
+        # Sample some variables from the posterior distribution
+        z = p.sample(seed=rng_1)         
+        
+        # Saving the samples of the predicted images and their difference from the original images
+        save_samples(folder_path=results_folder, z=z, batch=batch)
 
         wandb.finish()
 
