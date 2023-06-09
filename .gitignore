@@ -1,0 +1,16 @@
+# Ignore the .ipynb_checkpoints folder
+/.ipynb_checkpoints
+
+# Ignore the galsim-jax.egg-info folder
+/galsim_jax.egg-info
+
+# Ignore the wandb, artifacts and results folders
+/wandb
+/results
+/artifacts
+
+# Ignore the msgpack file
+checkpoint.msgpack
+
+# Ignore the __pycache__ folder inside the pip package
+/galsim_jax/__pycache__
