@@ -108,7 +108,7 @@ def save_samples(folder_path, z, batch):
     num_rows, num_cols = 8, 3
 
     plt.figure(figsize=(9, 28))
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(9, 28))
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(9, 24))
 
     for i, (ax1, ax2, ax3) in enumerate(zip(axes[:, 0], axes[:, 1], axes[:, 2])):
         batch_img = batch[i, ...]
@@ -125,7 +125,7 @@ def save_samples(folder_path, z, batch):
         ax3.axis("off")
 
     # Add a title to the figure
-    fig.suptitle("Comparison between original and predicted images", fontsize=12)
+    fig.suptitle("Comparison between original and predicted images", fontsize=12, y=0.99)
 
     # Adjust the layout of the subplots
     fig.tight_layout()

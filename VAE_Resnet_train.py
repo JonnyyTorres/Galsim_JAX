@@ -1,7 +1,6 @@
 import jax
 import tensorflow_datasets as tfds
 
-# import hsc_photoz
 import tensorflow as tf
 import numpy as np
 import jax.numpy as jnp
@@ -9,7 +8,6 @@ import optax
 import wandb
 import os
 
-# import msgpack
 import logging
 from galsim_jax.models import ResNetEnc, ResNetDec, ResNetBlock, ResNetBlockD
 from galsim_jax.utils import (
@@ -28,13 +26,9 @@ from tensorflow_probability.substrates import jax as tfp
 from flax import linen as nn  # Linen API
 from jax import random
 
-# from typing import Optional
-
 from tqdm.auto import tqdm
 from absl import app
 from absl import flags
-
-# from jax import lax
 
 logging.getLogger("tfds").setLevel(logging.ERROR)
 
@@ -124,9 +118,6 @@ def main(_):
     # Dataset as a numpy iterator
     dset = input_fn().as_numpy_iterator()
 
-    # Defining if we want a probabilistic output or not
-    # prob_output = FLAGS.prob_output
-
     # Generating a random key for JAX
     rng = random.PRNGKey(0)
     # Size of the input to initialize the parameters
@@ -189,9 +180,6 @@ def main(_):
         loss = -elbo.mean()
         return loss, -log_likelihood.mean()
 
-    # # Apply KL Regularization
-    # kl_reg_w = 1 if prob_output else 0
-
     """    # Veryfing that the 'value_and_grad' works fine
     loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
     """
@@ -243,6 +231,7 @@ def main(_):
     # Train the model as many steps as indicated initially
     for step in tqdm(range(1, config.steps + 1)):
         rng, rng_1 = random.split(rng)
+        # Iterating over the dataset
         batch_im = next(dset)
         loss, log_likelihood, params, opt_state = update(
             params, rng_1, opt_state, batch_im
@@ -296,14 +285,15 @@ def main(_):
                 )
             )
 
+    # Loading checkpoint for the best step
     params = load_checkpoint("checkpoint.msgpack", params)
 
+    # Obtaining the step with the lowest loss value
     loss_min = min(losses)
     best_step = losses.index(loss_min) + 1
+    print("\nBest Step: {}, loss: {:.2f}".format(best_step, loss_min))
 
     total_steps = np.arange(1, config.steps + 1)
-
-    print("\nBest Step: {}, loss: {:.2f}".format(best_step, loss_min))
 
     # Creating the 'results' folder to save all the plots as images (or validating that the folder already exists)
     results_folder = "results/{}".format(get_wandb_local_dir(wandb.run.dir))
@@ -372,14 +362,13 @@ def main(_):
     # Posterior distribution
     p = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD).apply(params_dec, z)
     # Sample some variables from the posterior distribution
+    rng, rng_1 = random.split(rng)
     z = p.sample(seed=rng_1)
 
     # Saving the samples of the predicted images and their difference from the original images
     save_samples(folder_path=results_folder, z=z, batch=batch)
 
     wandb.finish()
-
-    # print(log_liks)
 
 
 if __name__ == "__main__":

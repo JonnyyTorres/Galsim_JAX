@@ -4,10 +4,11 @@
 # Ignore the galsim-jax.egg-info folder
 /galsim_jax.egg-info
 
-# Ignore the wandb, artifacts and results folders
+# Ignore the wandb, artifacts, hsc_photoz and results folders
 /wandb
 /results
 /artifacts
+/hsc_photoz
 
 # Ignore the msgpack file
 checkpoint.msgpack
