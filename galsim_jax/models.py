@@ -7,7 +7,7 @@ tfb = tfp.bijectors
 
 
 class ResNetBlock(nn.Module):
-    """Creates a block of a CNN with ResNet architecture to encode images."""
+    """Creates a block of a CNN with ResNet architecture to encode or decode images."""
 
     act_fn: callable  # Activation function
     c_out: int  # Output feature size
@@ -51,8 +51,6 @@ class ResNetEnc(nn.Module):
     num_blocks: tuple = (1, 1, 1)
     c_hidden: tuple = (64, 128, 256)
     latent_dim: int = 64
-    # prob_output : bool = True # If True, the output will be an image instead of a
-    # probability distribution
 
     @nn.compact
     def __call__(self, x, encode=True):
@@ -86,6 +84,7 @@ class ResNetEnc(nn.Module):
 
         return q
 
+
 class ResNetDec(nn.Module):
     """ "Creates a small convolutional decoder using ResNet blocks as intermediate layers"""
 
@@ -93,7 +92,6 @@ class ResNetDec(nn.Module):
     block_class: nn.Module
     num_blocks: tuple = (1, 1, 1, 1)
     c_hidden: tuple = (128, 64, 32, 5)
-    # num_channels : int = 5
 
     @nn.compact
     def __call__(self, x, encode=False):

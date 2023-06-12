@@ -125,7 +125,9 @@ def save_samples(folder_path, z, batch):
         ax3.axis("off")
 
     # Add a title to the figure
-    fig.suptitle("Comparison between original and predicted images", fontsize=12, y=0.99)
+    fig.suptitle(
+        "Comparison between original and predicted images", fontsize=12, y=0.99
+    )
 
     # Adjust the layout of the subplots
     fig.tight_layout()

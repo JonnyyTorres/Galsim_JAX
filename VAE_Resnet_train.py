@@ -18,6 +18,7 @@ from galsim_jax.utils import (
     create_folder,
     save_plot_as_image,
     save_samples,
+    get_git_commit_version,
 )
 
 from jax.lib import xla_bridge
@@ -41,7 +42,16 @@ flags.DEFINE_integer("training_steps", 25000, "Number of training steps to run."
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
 # flags.DEFINE_boolean('prob_output', True, 'The encoder has or not a probabilistic output')
 flags.DEFINE_float("reg_value", 1e-2, "Regularization value of the KL Divergence.")
-flags.DEFINE_integer("gpu", 0, "Index of the GPU to use, e.g.: 0, 1, 2,...")
+flags.DEFINE_integer("gpu", 0, "Index of the GPU to use, e.g.: 0, 1, 2, etc...")
+flags.DEFINE_string(
+    "experiment", "model_1", "Type of experiment, e.g. 'model_1', 'model_2', etc..."
+)
+flags.DEFINE_string(
+    "project", "galsim-jax-resnet", "Name of the project, e.g.: 'resnet-comp-dim'"
+)
+flags.DEFINE_string(
+    "name", "first-model", "Name for the experiment, e.g.: 'dim_64_kl_0.01'"
+)
 
 
 FLAGS = flags.FLAGS
@@ -67,6 +77,9 @@ def main(_):
     # Set the CUDA_VISIBLE_DEVICES environment variable
     os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 
+    # device = gpus[FLAGS.gpu]  # Select the GPU device of interest
+    # print("Device used: {}".format(device))
+    
     # Loading the dataset and transforming it to NumPy Arrays
     train_dset, info = tfds.load(name=FLAGS.dataset, with_info=True, split="train")
 
@@ -120,11 +133,47 @@ def main(_):
 
     # Generating a random key for JAX
     rng = random.PRNGKey(0)
-    # Size of the input to initialize the parameters
+    # Size of the input to initialize the encoder parameters
     batch_enc = jnp.ones((1, 64, 64, 5))
 
+    if FLAGS.experiment == "model_1":
+        latent_dim = 64
+        c_hidden_enc = (64, 128, 256)
+        num_blocks_enc = (1, 1, 1)
+        c_hidden_dec = (128, 64, 32, 5)
+        num_blocks_dec = (1, 1, 1, 1)
+
+        # Size of the input to initialize the decoder parameters
+        batch_dec = jnp.ones((1, 4, 4, 64))
+
+    if FLAGS.experiment == "model_2":
+        latent_dim = 32
+        c_hidden_enc = (32, 64, 128, 256)
+        num_blocks_enc = (1, 1, 1, 1)
+        c_hidden_dec = (64, 32, 16, 8, 5)
+        num_blocks_dec = (1, 1, 1, 1, 1)
+
+        # Size of the input to initialize the decoder parameters
+        batch_dec = jnp.ones((1, 2, 2, 32))
+
+    if FLAGS.experiment == "model_3":
+        latent_dim = 16
+        c_hidden_enc = (16, 32, 64, 128, 256)
+        num_blocks_enc = (1, 1, 1, 1, 1)
+        c_hidden_dec = (32, 16, 8, 4, 2, 5)
+        num_blocks_dec = (1, 1, 1, 1, 1, 1)
+
+        # Size of the input to initialize the decoder parameters
+        batch_dec = jnp.ones((1, 1, 1, 16))
+
     # Initializing the Encoder
-    Encoder = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock)
+    Encoder = ResNetEnc(
+        act_fn=nn.leaky_relu,
+        block_class=ResNetBlock,
+        latent_dim=latent_dim,
+        c_hidden=c_hidden_enc,
+        num_blocks=num_blocks_enc,
+    )
     params_enc = Encoder.init(rng, batch_enc)
 
     # Taking 64 images of the dataset
@@ -132,11 +181,13 @@ def main(_):
     # Generating new keys to use them for inference
     rng, rng_1 = random.split(rng)
 
-    # Size of the input to initialize the parameters
-    batch_dec = jnp.ones((1, 4, 4, 64))
-
     # Initializing the Decoder
-    Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlock)
+    Decoder = ResNetDec(
+        act_fn=nn.leaky_relu,
+        block_class=ResNetBlock,
+        c_hidden=c_hidden_dec,
+        num_blocks=num_blocks_dec,
+    )
     params_dec = Decoder.init(rng_1, batch_dec)
 
     # Defining a general list of the parameters
@@ -201,8 +252,8 @@ def main(_):
 
     # Initializing a Weights & Biases Run
     wandb.init(
-        project="galsim-jax-resnet",
-        name="first-model",
+        project=FLAGS.project,
+        name=FLAGS.name,
         # tags="kl_reg={:.4f}".format(reg),
     )
 
@@ -218,6 +269,9 @@ def main(_):
     config.steps = FLAGS.training_steps
     config.kl_reg = FLAGS.reg_value
     config.using_kl = False if FLAGS.reg_value == 0 else True
+    config.latent_dim = latent_dim
+    config.type_model = FLAGS.experiment
+    config.commit_version = get_git_commit_version()
 
     losses = []
     losses_test = []
@@ -353,14 +407,23 @@ def main(_):
     # Dividing the list of parameters obtained before
     params_enc, params_dec = params
     # Distribution of latent space calculated using the batch of data
-    q = ResNetEnc(act_fn=nn.leaky_relu, block_class=ResNetBlock).apply(
-        params_enc, batch
-    )
+    q = ResNetEnc(
+        act_fn=nn.leaky_relu,
+        block_class=ResNetBlock,
+        latent_dim=latent_dim,
+        c_hidden=c_hidden_enc,
+        num_blocks=num_blocks_enc,
+    ).apply(params_enc, batch)
     # Sampling from the distribution
     z = q.sample(seed=rng_1)
 
     # Posterior distribution
-    p = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlock).apply(params_dec, z)
+    p = ResNetDec(
+        act_fn=nn.leaky_relu,
+        block_class=ResNetBlock,
+        c_hidden=c_hidden_dec,
+        num_blocks=num_blocks_dec,
+    ).apply(params_dec, z)
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
     z = p.sample(seed=rng_1)
