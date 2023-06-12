@@ -9,7 +9,7 @@ import wandb
 import os
 
 import logging
-from galsim_jax.models import ResNetEnc, ResNetDec, ResNetBlock, ResNetBlockD
+from galsim_jax.models import ResNetEnc, ResNetDec, ResNetBlock
 from galsim_jax.utils import (
     lr_schedule,
     save_checkpoint,
@@ -136,7 +136,7 @@ def main(_):
     batch_dec = jnp.ones((1, 4, 4, 64))
 
     # Initializing the Decoder
-    Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD)
+    Decoder = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlock)
     params_dec = Decoder.init(rng_1, batch_dec)
 
     # Defining a general list of the parameters
@@ -360,7 +360,7 @@ def main(_):
     z = q.sample(seed=rng_1)
 
     # Posterior distribution
-    p = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlockD).apply(params_dec, z)
+    p = ResNetDec(act_fn=nn.leaky_relu, block_class=ResNetBlock).apply(params_dec, z)
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
     z = p.sample(seed=rng_1)
