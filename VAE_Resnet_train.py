@@ -31,7 +31,7 @@ from tqdm.auto import tqdm
 from absl import app
 from absl import flags
 
-logging.getLogger("tfds").setLevel(logging.ERROR)
+# logging.getLogger("tfds").setLevel(logging.ERROR)
 
 # flags.DEFINE_string("input_folder", "/data/tensorflow_datasets/", "Location of the input images")
 flags.DEFINE_string("dataset", "hsc_photoz", "Suite of simulations to learn from")
@@ -62,6 +62,13 @@ tfb = tfp.bijectors
 
 
 def main(_):
+    # Set the CUDA_VISIBLE_DEVICES environment variable
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
+
+    # physical_devices = tf.config.experimental.list_physical_devices('GPU')
+    # assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
+    # config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
     # os.chdir(FLAGS.input_folder)
 
     # Checking for GPU access
@@ -74,11 +81,8 @@ def main(_):
     # Ensure TF does not see GPU and grab all GPU memory.
     tf.config.set_visible_devices([], device_type="GPU")
 
-    # Set the CUDA_VISIBLE_DEVICES environment variable
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
-
-    # device = gpus[FLAGS.gpu]  # Select the GPU device of interest
-    # print("Device used: {}".format(device))
+    device = gpus[FLAGS.gpu]  # Select the GPU device of interest
+    print("Device used: {}".format(device))
     
     # Loading the dataset and transforming it to NumPy Arrays
     train_dset, info = tfds.load(name=FLAGS.dataset, with_info=True, split="train")
@@ -136,7 +140,7 @@ def main(_):
     # Size of the input to initialize the encoder parameters
     batch_enc = jnp.ones((1, 64, 64, 5))
 
-    if FLAGS.experiment == "model_1":
+    '''if FLAGS.experiment == "model_1":
         latent_dim = 64
         c_hidden_enc = (64, 128, 256)
         num_blocks_enc = (1, 1, 1)
@@ -164,7 +168,31 @@ def main(_):
         num_blocks_dec = (1, 1, 1, 1, 1, 1)
 
         # Size of the input to initialize the decoder parameters
-        batch_dec = jnp.ones((1, 1, 1, 16))
+        batch_dec = jnp.ones((1, 1, 1, 16))'''
+    
+    if FLAGS.experiment == "model_1":
+        latent_dim = 64
+        # Size of the input to initialize the decoder parameters
+        batch_dec = jnp.ones((1, 4, 4, 64))
+
+    if FLAGS.experiment == "model_2":
+        latent_dim = 32
+        # Size of the input to initialize the decoder parameters
+        batch_dec = jnp.ones((1, 4, 4, 32))
+
+    if FLAGS.experiment == "model_3":
+        latent_dim = 16
+        # Size of the input to initialize the decoder parameters
+        batch_dec = jnp.ones((1, 4, 4, 16))
+
+    if FLAGS.experiment == "model_4":
+        latent_dim = 64
+        c_hidden_enc = (32, 64, 128, 256)
+        num_blocks_enc = (1, 1, 1, 1)
+        c_hidden_dec = (128, 64, 32, 16, 5)
+        num_blocks_dec = (1, 1, 1, 1, 1)
+        # Size of the input to initialize the decoder parameters
+        batch_dec = jnp.ones((1, 2, 2, 64))
 
     # Initializing the Encoder
     Encoder = ResNetEnc(

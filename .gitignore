@@ -15,3 +15,6 @@ checkpoint.msgpack
 
 # Ignore the __pycache__ folder inside the pip package
 /galsim_jax/__pycache__
+
+# Ignore the test notebook
+test.ipynb
