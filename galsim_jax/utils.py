@@ -5,6 +5,7 @@ import subprocess
 import wandb
 
 from flax.serialization import to_state_dict, msgpack_serialize, from_bytes
+from flax import linen as nn  # Linen API
 
 
 def create_folder(folder_path="results"):
@@ -170,3 +171,31 @@ def get_wandb_local_dir(wandb_local_dir):
     run_string = wandb_local_dir[start_index:end_index]
 
     return run_string
+
+
+def get_activation_fn(name):
+    """PyTorch built-in activation functions"""
+
+    activation_functions = {
+        "linear": lambda: lambda x: x,
+        "relu": nn.relu,
+        "relu6": nn.relu6,
+        "elu": nn.elu,
+        "gelu": nn.gelu,
+        "prelu": nn.PReLU,
+        "leaky_relu": nn.leaky_relu,
+        "hardtanh": nn.hard_tanh,
+        "sigmoid": nn.sigmoid,
+        "tanh": nn.tanh,
+        "log_sigmoid": nn.log_sigmoid,
+        "softplus": nn.softplus,
+        "softsign": nn.soft_sign,
+        "swish": nn.swish,
+    }
+
+    if name not in activation_functions:
+        raise ValueError(
+            f"'{name}' is not included in activation_functions. use below one. \n {activation_functions.keys()}"
+        )
+
+    return activation_functions[name]

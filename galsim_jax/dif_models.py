@@ -33,6 +33,7 @@ class Downsample(nn.Module):
 class ResnetBlock(nn.Module):
     in_channels: int
     out_channels: int
+    act_fn: callable = nn.gelu  # Activation function
 
     def setup(self):
         self.norm1 = Normalize(num_groups=5)
@@ -60,10 +61,10 @@ class ResnetBlock(nn.Module):
     def __call__(self, x):
         h = x
         h = self.norm1(h)
-        h = nn.swish(h)
+        h = self.act_fn(h)
         h = self.conv1(h)
         h = self.norm2(h)
-        h = nn.swish(h)
+        h = self.act_fn(h)
         h = self.conv2(h)
         x = self.nin_shortcut(x)
         x_ = x + h
@@ -77,6 +78,7 @@ class DownsamplingBlock(nn.Module):
     num_res_blocks: int
     resolution: int
     block_idx: int
+    act_fn: callable = nn.gelu  # Activation function
 
     def setup(self):
         self.ch_mult_ = self.ch_mult
@@ -87,12 +89,7 @@ class DownsamplingBlock(nn.Module):
 
         res_blocks = []
         for _ in range(self.num_res_blocks):
-            res_blocks.append(
-                ResnetBlock(
-                    block_in,
-                    block_out,
-                )
-            )
+            res_blocks.append(ResnetBlock(block_in, block_out, self.act_fn))
         block_in = block_out
         self.block = res_blocks
 
@@ -139,6 +136,7 @@ class Encoder(nn.Module):
     resolution: int
     z_channels: int
     double_z: bool
+    act_fn: callable = nn.gelu  # Activation function
 
     def setup(self):
         self.num_resolutions = len(self.ch_mult)
@@ -162,6 +160,7 @@ class Encoder(nn.Module):
                     num_res_blocks=self.num_res_blocks,
                     resolution=self.resolution,
                     block_idx=i_level,
+                    act_fn=self.act_fn,
                 )
             )
             if i_level != self.num_resolutions - 1:
@@ -196,7 +195,7 @@ class Encoder(nn.Module):
 
         # end
         hs = self.norm_out(hs)
-        hs = nn.swish(hs)
+        hs = self.act_fn(hs)
         hs = self.conv_out(hs)
         print("Conv_out :", hs.shape)
 
@@ -231,6 +230,7 @@ class UpsamplingBlock(nn.Module):
     num_res_blocks: int
     resolution: int
     block_idx: int
+    act_fn: callable = nn.gelu  # Activation function
 
     def setup(self):
         self.ch_mult_ = self.ch_mult
@@ -245,7 +245,7 @@ class UpsamplingBlock(nn.Module):
 
         res_blocks = []
         for _ in range(self.num_res_blocks + 1):
-            res_blocks.append(ResnetBlock(block_in, block_out))
+            res_blocks.append(ResnetBlock(block_in, block_out, self.act_fn))
 
         block_in = block_out
 
@@ -274,6 +274,7 @@ class Decoder(nn.Module):
     resolution: int
     z_channels: int
     double_z: bool
+    act_fn: callable = nn.gelu  # Activation function
 
     def setup(self):
         self.num_resolutions = len(self.ch_mult)
@@ -310,6 +311,7 @@ class Decoder(nn.Module):
                     num_res_blocks=self.num_res_blocks,
                     resolution=self.resolution,
                     block_idx=i_level,
+                    act_fn=self.act_fn,
                 )
             )
             if i_level != 0:
@@ -338,7 +340,7 @@ class Decoder(nn.Module):
 
         # end
         hs = self.norm_out(hs)
-        hs = nn.swish(hs)
+        hs = self.act_fn(hs)
         hs = self.conv_out(hs)
 
         return hs
@@ -354,6 +356,7 @@ class AutoencoderKLModule(nn.Module):
     z_channels: int
     double_z: bool
     embed_dim: int
+    act_fn: callable = nn.gelu  # Activation function
 
     def setup(self):
         self.encoder = Encoder(
@@ -365,6 +368,7 @@ class AutoencoderKLModule(nn.Module):
             self.resolution,
             self.z_channels,
             self.double_z,
+            self.act_fn,
         )
         self.decoder = Decoder(
             self.ch,
@@ -375,6 +379,7 @@ class AutoencoderKLModule(nn.Module):
             self.resolution,
             self.z_channels,
             self.double_z,
+            self.act_fn,
         )
         self.quant_conv = nn.Conv(
             2 * self.embed_dim,
@@ -405,14 +410,12 @@ class AutoencoderKLModule(nn.Module):
         h = self.post_quant_conv(h)
         h = self.decoder(h)
         # Image is now 64x64x5
-        q =tfd.MultivariateNormalDiag(loc=h,
-                                      scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
+        q = tfd.MultivariateNormalDiag(loc=h, scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
         return q
-
 
     def __call__(self, x, seed):
         posterior = self.encode(x)
         h = posterior.sample(seed=seed)
         q = self.decode(h)
 
-        return q #, posterior
+        return q  # , posterior

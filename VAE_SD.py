@@ -19,6 +19,7 @@ from galsim_jax.utils import (
     save_plot_as_image,
     save_samples,
     get_git_commit_version,
+    get_activation_fn,
 )
 
 from jax.lib import xla_bridge
@@ -42,13 +43,16 @@ flags.DEFINE_integer("training_steps", 50000, "Number of training steps to run."
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
 # flags.DEFINE_boolean('prob_output', True, 'The encoder has or not a probabilistic output')
 flags.DEFINE_float("reg_value", 1e-6, "Regularization value of the KL Divergence.")
-flags.DEFINE_integer("gpu", 0, "Index of the GPU to use, e.g.: 0, 1, 2, etc...")
+flags.DEFINE_integer("gpu", 0, "Index of the GPU to use, e.g.: 0, 1, 2, etc.")
 flags.DEFINE_string(
-    "experiment", "model_1", "Type of experiment, e.g. 'model_1', 'model_2', etc..."
+    "experiment", "model_1", "Type of experiment, e.g. 'model_1', 'model_2', etc."
 )
 flags.DEFINE_string("project", "VAE-SD", "Name of the project, e.g.: 'VAE-SD'")
 flags.DEFINE_string(
     "name", "first-model", "Name for the experiment, e.g.: 'dim_64_kl_0.01'"
+)
+flags.DEFINE_string(
+    "act_fn", "gelu", "Activation function, e.g.: 'gelu', 'leaky_relu', etc."
 )
 
 
@@ -193,6 +197,7 @@ def main(_):
         batch_dec = jnp.ones((1, 2, 2, 64))"""
 
     latent_dim = 64
+    act_fn = get_activation_fn(FLAGS.act_fn)
 
     # Initializing the AutoEncoder
     Autoencoder = AutoencoderKLModule(
@@ -205,6 +210,7 @@ def main(_):
         out_ch=5,
         ch=5,
         embed_dim=5,
+        act_fn=act_fn,
     )
 
     params = Autoencoder.init(rng, x=batch_autoenc, seed=rng_2)
@@ -303,6 +309,7 @@ def main(_):
     config.latent_dim = latent_dim
     config.type_model = FLAGS.experiment
     config.commit_version = get_git_commit_version()
+    config.act_fn = FLAGS.act_fn
 
     losses = []
     losses_test = []
