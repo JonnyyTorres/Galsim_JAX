@@ -11,7 +11,6 @@ import os
 import logging
 from galsim_jax.dif_models import AutoencoderKLModule
 from galsim_jax.utils import (
-    lr_schedule,
     save_checkpoint,
     load_checkpoint,
     get_wandb_local_dir,
@@ -56,7 +55,8 @@ flags.DEFINE_string(
     "act_fn", "gelu", "Activation function, e.g.: 'gelu', 'leaky_relu', etc."
 )
 flags.DEFINE_string("opt", "adam", "Optimizer, e.g.: 'adam', 'adamw'")
-
+flags.DEFINE_integer("resblocks", 2, "Number of resnet blocks.: 1, 2.")
+flags.DEFINE_integer("step_sch", 40000, "Steps for the lr_schedule")
 
 FLAGS = flags.FLAGS
 
@@ -204,7 +204,7 @@ def main(_):
     # Initializing the AutoEncoder
     Autoencoder = AutoencoderKLModule(
         ch_mult=(1, 2, 4),
-        num_res_blocks=2,
+        num_res_blocks=FLAGS.resblocks,
         double_z=True,
         z_channels=5,
         resolution=latent_dim,
@@ -235,7 +235,7 @@ def main(_):
     # params = [params_enc, params_dec]
 
     # Initialisation
-    optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate)
+    optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
     opt_state = optimizer.init(params)
 
     @jax.jit
@@ -310,6 +310,8 @@ def main(_):
     config.commit_version = get_git_commit_version()
     config.act_fn = FLAGS.act_fn
     config.opt = FLAGS.opt
+    config.resnet_blocks = FLAGS.resblocks
+    config.steps_schedule = FLAGS.step_sch
 
     losses = []
     losses_test = []

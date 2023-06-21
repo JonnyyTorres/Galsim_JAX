@@ -22,9 +22,9 @@ def create_folder(folder_path="results"):
         print(f"Error creating folder: {str(e)}")
 
 
-def lr_schedule(step):
+def lr_schedule(step, num_steps):
     """Linear scaling rule optimized for 90 epochs."""
-    steps_per_epoch = 40000 // 64
+    steps_per_epoch = num_steps // 64
 
     current_epoch = step / steps_per_epoch  # type: float
     boundaries = jnp.array((40, 80, 120)) * steps_per_epoch
@@ -202,12 +202,16 @@ def get_activation_fn(name):
     return activation_functions[name]
 
 
-def get_optimizer(name, lr):
+def get_optimizer(name, lr, num_steps):
     """JAX built-in activation functions"""
 
     optimizer = {
-        "adam": optax.chain(optax.adam(lr), optax.scale_by_schedule(lr_schedule)),
-        "adamw": optax.chain(optax.adamw(lr), optax.scale_by_schedule(lr_schedule)),
+        "adam": optax.chain(
+            optax.adam(lr), optax.scale_by_schedule(lr_schedule(num_steps))
+        ),
+        "adamw": optax.chain(
+            optax.adamw(lr), optax.scale_by_schedule(lr_schedule(num_steps))
+        ),
     }
 
     if name not in optimizer:
