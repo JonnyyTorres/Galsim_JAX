@@ -277,7 +277,7 @@ def main(_):
         (loss, log_likelihood), grads = jax.value_and_grad(loss_fn, has_aux=True)(
             params, rng_key, batch, FLAGS.reg_value
         )
-        updates, new_opt_state = optimizer.update(grads, opt_state)
+        updates, new_opt_state = optimizer.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
         return loss, log_likelihood, new_params, new_opt_state
 
@@ -309,6 +309,7 @@ def main(_):
     config.type_model = FLAGS.experiment
     config.commit_version = get_git_commit_version()
     config.act_fn = FLAGS.act_fn
+    config.opt = FLAGS.opt
 
     losses = []
     losses_test = []
