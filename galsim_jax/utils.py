@@ -24,7 +24,7 @@ def create_folder(folder_path="results"):
 
 def lr_schedule(step):
     """Linear scaling rule optimized for 90 epochs."""
-    steps_per_epoch = 30000 // 64
+    steps_per_epoch = 40000 // 64
 
     current_epoch = step / steps_per_epoch  # type: float
     boundaries = jnp.array((40, 80, 120)) * steps_per_epoch
