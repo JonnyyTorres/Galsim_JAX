@@ -313,6 +313,12 @@ def main(_):
     config.resnet_blocks = FLAGS.resblocks
     config.steps_schedule = FLAGS.step_sch
 
+    # Define the metrics we are interested in the minimum of
+    wandb.define_metric("loss", summary="min")
+    wandb.define_metric("log_likelihood", summary="min")
+    wandb.define_metric("test_loss", summary="min")
+    wandb.define_metric("test_log_likelihood", summary="min")
+
     losses = []
     losses_test = []
     losses_test_step = []
@@ -386,6 +392,18 @@ def main(_):
     loss_min = min(losses)
     best_step = losses.index(loss_min) + 1
     print("\nBest Step: {}, loss: {:.2f}".format(best_step, loss_min))
+
+    # Obtaining the step with the lowest log-likelihood value
+    log_lik_min = min(log_liks)
+    best_step_log = log_liks.index(log_lik_min) + 1
+    print("\nBest Step: {}, loss: {:.2f}".format(best_step_log, log_lik_min))
+
+    best_steps = {
+        "best_step_loss": best_step,
+        "best_step_log_lik": best_step_log,
+    }
+
+    wandb.log(best_steps)
 
     total_steps = np.arange(1, config.steps + 1)
 
