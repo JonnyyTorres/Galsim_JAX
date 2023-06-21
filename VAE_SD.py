@@ -20,6 +20,7 @@ from galsim_jax.utils import (
     save_samples,
     get_git_commit_version,
     get_activation_fn,
+    get_optimizer,
 )
 
 from jax.lib import xla_bridge
@@ -54,6 +55,7 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     "act_fn", "gelu", "Activation function, e.g.: 'gelu', 'leaky_relu', etc."
 )
+flags.DEFINE_string("opt", "adam", "Optimizer, e.g.: 'adam', 'adamw'")
 
 
 FLAGS = flags.FLAGS
@@ -233,10 +235,7 @@ def main(_):
     # params = [params_enc, params_dec]
 
     # Initialisation
-    optimizer = optax.chain(
-        optax.adam(FLAGS.learning_rate), optax.scale_by_schedule(lr_schedule)
-    )
-
+    optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate)
     opt_state = optimizer.init(params)
 
     @jax.jit

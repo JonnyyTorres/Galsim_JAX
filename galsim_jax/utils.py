@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import jax.numpy as jnp
 import subprocess
 import wandb
+import optax
 
 from flax.serialization import to_state_dict, msgpack_serialize, from_bytes
 from flax import linen as nn  # Linen API
@@ -174,7 +175,7 @@ def get_wandb_local_dir(wandb_local_dir):
 
 
 def get_activation_fn(name):
-    """PyTorch built-in activation functions"""
+    """JAX built-in activation functions"""
 
     activation_functions = {
         "linear": lambda: lambda x: x,
@@ -199,3 +200,19 @@ def get_activation_fn(name):
         )
 
     return activation_functions[name]
+
+
+def get_optimizer(name, lr):
+    """JAX built-in activation functions"""
+
+    optimizer = {
+        "adam": optax.chain(optax.adam(lr), optax.scale_by_schedule(lr_schedule)),
+        "adamw": optax.chain(optax.adamw(lr), optax.scale_by_schedule(lr_schedule)),
+    }
+
+    if name not in optimizer:
+        raise ValueError(
+            f"'{name}' is not included in optimizer names. use below one. \n {optimizer.keys()}"
+        )
+
+    return optimizer[name]
