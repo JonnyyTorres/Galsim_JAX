@@ -237,7 +237,7 @@ def main(_):
     # params = [params_enc, params_dec]
 
     # Initialisation
-    optimizer = new_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
+    optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
     opt_state = optimizer.init(params)
 
     @jax.jit
