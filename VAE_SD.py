@@ -20,6 +20,7 @@ from galsim_jax.utils import (
     get_git_commit_version,
     get_activation_fn,
     get_optimizer,
+    new_optimizer,
 )
 
 from jax.lib import xla_bridge
@@ -68,6 +69,7 @@ tfb = tfp.bijectors
 def main(_):
     # Set the CUDA_VISIBLE_DEVICES environment variable
     os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
+    os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda"
 
     # physical_devices = tf.config.experimental.list_physical_devices('GPU')
     # assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
@@ -235,7 +237,7 @@ def main(_):
     # params = [params_enc, params_dec]
 
     # Initialisation
-    optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
+    optimizer = new_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
     opt_state = optimizer.init(params)
 
     @jax.jit
@@ -312,6 +314,8 @@ def main(_):
     config.opt = FLAGS.opt
     config.resnet_blocks = FLAGS.resblocks
     config.steps_schedule = FLAGS.step_sch
+    # config.lr_method = "Warmup Cosine"
+    config.interpolation = "Bicubic"
 
     # Define the metrics we are interested in the minimum of
     wandb.define_metric("loss", summary="min")
@@ -396,7 +400,7 @@ def main(_):
     # Obtaining the step with the lowest log-likelihood value
     log_lik_min = min(log_liks)
     best_step_log = log_liks.index(log_lik_min) + 1
-    print("\nBest Step: {}, loss: {:.2f}".format(best_step_log, log_lik_min))
+    print("\nBest Step: {}, log-likelihood: {:.2f}".format(best_step_log, log_lik_min))
 
     best_steps = {
         "best_step_loss": best_step,

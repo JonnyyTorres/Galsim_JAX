@@ -83,7 +83,7 @@ def main(_):
 
     device = gpus[FLAGS.gpu]  # Select the GPU device of interest
     print("Device used: {}".format(device))
-    
+
     # Loading the dataset and transforming it to NumPy Arrays
     train_dset, info = tfds.load(name=FLAGS.dataset, with_info=True, split="train")
 
@@ -140,7 +140,7 @@ def main(_):
     # Size of the input to initialize the encoder parameters
     batch_enc = jnp.ones((1, 64, 64, 5))
 
-    '''if FLAGS.experiment == "model_1":
+    """if FLAGS.experiment == "model_1":
         latent_dim = 64
         c_hidden_enc = (64, 128, 256)
         num_blocks_enc = (1, 1, 1)
@@ -168,8 +168,8 @@ def main(_):
         num_blocks_dec = (1, 1, 1, 1, 1, 1)
 
         # Size of the input to initialize the decoder parameters
-        batch_dec = jnp.ones((1, 1, 1, 16))'''
-    
+        batch_dec = jnp.ones((1, 1, 1, 16))"""
+
     if FLAGS.experiment == "model_1":
         latent_dim = 64
         # Size of the input to initialize the decoder parameters

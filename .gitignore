@@ -19,3 +19,6 @@ checkpoint.msgpack
 
 # Ignore the test notebook
 test.ipynb
+
+# Ignore the train.sh file
+train.sh 

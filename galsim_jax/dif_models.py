@@ -218,7 +218,7 @@ class Upsample(nn.Module):
         hs = jax.image.resize(
             hs,
             shape=(batch, height * 2, width * 2, channels),
-            method="nearest",
+            method="bicubic",
         )
         hs = self.conv(hs)
         return hs

@@ -24,7 +24,7 @@ def create_folder(folder_path="results"):
 
 def lr_schedule(step):
     """Linear scaling rule optimized for 90 epochs."""
-    steps_per_epoch = 40000 // 64
+    steps_per_epoch = 50000 // 64
 
     current_epoch = step / steps_per_epoch  # type: float
     boundaries = jnp.array((40, 80, 120)) * steps_per_epoch
@@ -208,6 +208,28 @@ def get_optimizer(name, lr, num_steps):
     optimizer = {
         "adam": optax.chain(optax.adam(lr), optax.scale_by_schedule(lr_schedule)),
         "adamw": optax.chain(optax.adamw(lr), optax.scale_by_schedule(lr_schedule)),
+    }
+
+    if name not in optimizer:
+        raise ValueError(
+            f"'{name}' is not included in optimizer names. use below one. \n {optimizer.keys()}"
+        )
+
+    return optimizer[name]
+
+
+def new_optimizer(name):
+    schedule = optax.warmup_cosine_decay_schedule(
+        init_value=0.0,
+        peak_value=1.0,
+        warmup_steps=5_000,
+        decay_steps=95_000,
+        end_value=0.0,
+    )
+
+    optimizer = {
+        "adam": optax.chain(optax.clip(1.0), optax.adam(learning_rate=schedule)),
+        "adamw": optax.chain(optax.clip(1.0), optax.adamw(learning_rate=schedule)),
     }
 
     if name not in optimizer:
