@@ -1,3 +1,5 @@
+import sys
+import os
 import jax
 import tensorflow_datasets as tfds
 
@@ -6,9 +8,8 @@ import numpy as np
 import jax.numpy as jnp
 import optax
 import wandb
-import os
-
 import logging
+
 from galsim_jax.models import ResNetEnc, ResNetDec, ResNetBlock
 from galsim_jax.utils import (
     lr_schedule,
@@ -19,6 +20,7 @@ from galsim_jax.utils import (
     save_plot_as_image,
     save_samples,
     get_git_commit_version,
+    get_activation_fn,
 )
 
 from jax.lib import xla_bridge
@@ -52,6 +54,9 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     "name", "first-model", "Name for the experiment, e.g.: 'dim_64_kl_0.01'"
 )
+flags.DEFINE_string(
+    "act_fn", "gelu", "Activation function, e.g.: 'gelu', 'leaky_relu', etc."
+)
 
 
 FLAGS = flags.FLAGS
@@ -62,9 +67,6 @@ tfb = tfp.bijectors
 
 
 def main(_):
-    # Set the CUDA_VISIBLE_DEVICES environment variable
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
-
     # physical_devices = tf.config.experimental.list_physical_devices('GPU')
     # assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
     # config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -81,8 +83,8 @@ def main(_):
     # Ensure TF does not see GPU and grab all GPU memory.
     tf.config.set_visible_devices([], device_type="GPU")
 
-    device = gpus[FLAGS.gpu]  # Select the GPU device of interest
-    print("Device used: {}".format(device))
+    # device = gpus[FLAGS.gpu]  # Select the GPU device of interest
+    # print("Device used: {}".format(device))
 
     # Loading the dataset and transforming it to NumPy Arrays
     train_dset, info = tfds.load(name=FLAGS.dataset, with_info=True, split="train")
@@ -194,9 +196,11 @@ def main(_):
         # Size of the input to initialize the decoder parameters
         batch_dec = jnp.ones((1, 2, 2, 64))
 
+    act_fn = get_activation_fn(FLAGS.act_fn)
+
     # Initializing the Encoder
     Encoder = ResNetEnc(
-        act_fn=nn.leaky_relu,
+        act_fn=act_fn,
         block_class=ResNetBlock,
         latent_dim=latent_dim,
         c_hidden=c_hidden_enc,
@@ -211,7 +215,7 @@ def main(_):
 
     # Initializing the Decoder
     Decoder = ResNetDec(
-        act_fn=nn.leaky_relu,
+        act_fn=act_fn,
         block_class=ResNetBlock,
         c_hidden=c_hidden_dec,
         num_blocks=num_blocks_dec,
@@ -269,7 +273,7 @@ def main(_):
         (loss, log_likelihood), grads = jax.value_and_grad(loss_fn, has_aux=True)(
             params, rng_key, batch, FLAGS.reg_value
         )
-        updates, new_opt_state = optimizer.update(grads, opt_state)
+        updates, new_opt_state = optimizer.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
         return loss, log_likelihood, new_params, new_opt_state
 
@@ -300,6 +304,13 @@ def main(_):
     config.latent_dim = latent_dim
     config.type_model = FLAGS.experiment
     config.commit_version = get_git_commit_version()
+    config.act_fn = FLAGS.act_fn
+
+    # Define the metrics we are interested in the minimum of
+    wandb.define_metric("loss", summary="min")
+    wandb.define_metric("log_likelihood", summary="min")
+    wandb.define_metric("test_loss", summary="min")
+    wandb.define_metric("test_log_likelihood", summary="min")
 
     losses = []
     losses_test = []
@@ -336,7 +347,7 @@ def main(_):
             save_checkpoint("checkpoint.msgpack", params, step)
 
         # Calculating the loss for all the test images
-        if step % (config.steps // 10) == 0:
+        if step % (config.steps // 50) == 0:
             dataset_eval = input_fn("test")
             test_iterator = dataset_eval.as_numpy_iterator()
 
@@ -374,6 +385,18 @@ def main(_):
     loss_min = min(losses)
     best_step = losses.index(loss_min) + 1
     print("\nBest Step: {}, loss: {:.2f}".format(best_step, loss_min))
+
+    # Obtaining the step with the lowest log-likelihood value
+    log_lik_min = min(log_liks)
+    best_step_log = log_liks.index(log_lik_min) + 1
+    print("\nBest Step: {}, log-likelihood: {:.2f}".format(best_step_log, log_lik_min))
+
+    best_steps = {
+        "best_step_loss": best_step,
+        "best_step_log_lik": best_step_log,
+    }
+
+    wandb.log(best_steps)
 
     total_steps = np.arange(1, config.steps + 1)
 
@@ -436,7 +459,7 @@ def main(_):
     params_enc, params_dec = params
     # Distribution of latent space calculated using the batch of data
     q = ResNetEnc(
-        act_fn=nn.leaky_relu,
+        act_fn=act_fn,
         block_class=ResNetBlock,
         latent_dim=latent_dim,
         c_hidden=c_hidden_enc,
@@ -447,7 +470,7 @@ def main(_):
 
     # Posterior distribution
     p = ResNetDec(
-        act_fn=nn.leaky_relu,
+        act_fn=act_fn,
         block_class=ResNetBlock,
         c_hidden=c_hidden_dec,
         num_blocks=num_blocks_dec,
@@ -463,4 +486,10 @@ def main(_):
 
 
 if __name__ == "__main__":
+    # Parse the command-line flags
+    app.FLAGS(sys.argv)
+
+    # Set the CUDA_VISIBLE_DEVICES environment variable
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
+    os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda-12.1"
     app.run(main)
