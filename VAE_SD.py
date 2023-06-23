@@ -1,3 +1,5 @@
+import sys
+import os
 import jax
 import tensorflow_datasets as tfds
 
@@ -6,9 +8,8 @@ import numpy as np
 import jax.numpy as jnp
 import optax
 import wandb
-import os
-
 import logging
+
 from galsim_jax.dif_models import AutoencoderKLModule
 from galsim_jax.utils import (
     save_checkpoint,
@@ -67,10 +68,6 @@ tfb = tfp.bijectors
 
 
 def main(_):
-    # Set the CUDA_VISIBLE_DEVICES environment variable
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
-    os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda"
-
     # physical_devices = tf.config.experimental.list_physical_devices('GPU')
     # assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
     # config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
@@ -87,8 +84,8 @@ def main(_):
     # Ensure TF does not see GPU and grab all GPU memory.
     tf.config.set_visible_devices([], device_type="GPU")
 
-    device = gpus[FLAGS.gpu]  # Select the GPU device of interest
-    print("Device used: {}".format(device))
+    # device = gpus[FLAGS.gpu]  # Select the GPU device of interest
+    # print("Device used: {}".format(device))
 
     # Loading the dataset and transforming it to NumPy Arrays
     train_dset, info = tfds.load(name=FLAGS.dataset, with_info=True, split="train")
@@ -358,7 +355,7 @@ def main(_):
             save_checkpoint("checkpoint.msgpack", params, step)
 
         # Calculating the loss for all the test images
-        if step % (config.steps // 10) == 0:
+        if step % (config.steps // 50) == 0:
             dataset_eval = input_fn("test")
             test_iterator = dataset_eval.as_numpy_iterator()
 
@@ -493,4 +490,10 @@ def main(_):
 
 
 if __name__ == "__main__":
+    # Parse the command-line flags
+    app.FLAGS(sys.argv)
+
+    # Set the CUDA_VISIBLE_DEVICES environment variable
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
+    os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda-12.1"
     app.run(main)
