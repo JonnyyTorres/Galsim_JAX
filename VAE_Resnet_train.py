@@ -203,8 +203,8 @@ def main(_):
         act_fn=act_fn,
         block_class=ResNetBlock,
         latent_dim=latent_dim,
-        c_hidden=c_hidden_enc,
-        num_blocks=num_blocks_enc,
+        # c_hidden=c_hidden_enc,
+        # num_blocks=num_blocks_enc,
     )
     params_enc = Encoder.init(rng, batch_enc)
 
@@ -217,8 +217,8 @@ def main(_):
     Decoder = ResNetDec(
         act_fn=act_fn,
         block_class=ResNetBlock,
-        c_hidden=c_hidden_dec,
-        num_blocks=num_blocks_dec,
+        # c_hidden=c_hidden_dec,
+        # num_blocks=num_blocks_dec,
     )
     params_dec = Decoder.init(rng_1, batch_dec)
 
@@ -462,8 +462,8 @@ def main(_):
         act_fn=act_fn,
         block_class=ResNetBlock,
         latent_dim=latent_dim,
-        c_hidden=c_hidden_enc,
-        num_blocks=num_blocks_enc,
+        # c_hidden=c_hidden_enc,
+        # num_blocks=num_blocks_enc,
     ).apply(params_enc, batch)
     # Sampling from the distribution
     z = q.sample(seed=rng_1)
@@ -472,8 +472,8 @@ def main(_):
     p = ResNetDec(
         act_fn=act_fn,
         block_class=ResNetBlock,
-        c_hidden=c_hidden_dec,
-        num_blocks=num_blocks_dec,
+        # c_hidden=c_hidden_dec,
+        # num_blocks=num_blocks_dec,
     ).apply(params_dec, z)
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
