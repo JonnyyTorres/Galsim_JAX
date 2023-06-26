@@ -142,7 +142,7 @@ def main(_):
     # Size of the input to initialize the encoder parameters
     batch_enc = jnp.ones((1, 64, 64, 5))
 
-    """if FLAGS.experiment == "model_1":
+    if FLAGS.experiment == "model_1":
         latent_dim = 64
         c_hidden_enc = (64, 128, 256)
         num_blocks_enc = (1, 1, 1)
@@ -170,9 +170,9 @@ def main(_):
         num_blocks_dec = (1, 1, 1, 1, 1, 1)
 
         # Size of the input to initialize the decoder parameters
-        batch_dec = jnp.ones((1, 1, 1, 16))"""
+        batch_dec = jnp.ones((1, 1, 1, 16))
 
-    if FLAGS.experiment == "model_1":
+    """if FLAGS.experiment == "model_1":
         latent_dim = 64
         # Size of the input to initialize the decoder parameters
         batch_dec = jnp.ones((1, 4, 4, 64))
@@ -194,7 +194,7 @@ def main(_):
         c_hidden_dec = (128, 64, 32, 16, 5)
         num_blocks_dec = (1, 1, 1, 1, 1)
         # Size of the input to initialize the decoder parameters
-        batch_dec = jnp.ones((1, 2, 2, 64))
+        batch_dec = jnp.ones((1, 2, 2, 64))"""
 
     act_fn = get_activation_fn(FLAGS.act_fn)
 
@@ -203,8 +203,8 @@ def main(_):
         act_fn=act_fn,
         block_class=ResNetBlock,
         latent_dim=latent_dim,
-        # c_hidden=c_hidden_enc,
-        # num_blocks=num_blocks_enc,
+        c_hidden=c_hidden_enc,
+        num_blocks=num_blocks_enc,
     )
     params_enc = Encoder.init(rng, batch_enc)
 
@@ -217,8 +217,8 @@ def main(_):
     Decoder = ResNetDec(
         act_fn=act_fn,
         block_class=ResNetBlock,
-        # c_hidden=c_hidden_dec,
-        # num_blocks=num_blocks_dec,
+        c_hidden=c_hidden_dec,
+        num_blocks=num_blocks_dec,
     )
     params_dec = Decoder.init(rng_1, batch_dec)
 
@@ -273,7 +273,7 @@ def main(_):
         (loss, log_likelihood), grads = jax.value_and_grad(loss_fn, has_aux=True)(
             params, rng_key, batch, FLAGS.reg_value
         )
-        updates, new_opt_state = optimizer.update(grads, opt_state, params)
+        updates, new_opt_state = optimizer.update(grads, opt_state)
         new_params = optax.apply_updates(params, updates)
         return loss, log_likelihood, new_params, new_opt_state
 
@@ -462,8 +462,8 @@ def main(_):
         act_fn=act_fn,
         block_class=ResNetBlock,
         latent_dim=latent_dim,
-        # c_hidden=c_hidden_enc,
-        # num_blocks=num_blocks_enc,
+        c_hidden=c_hidden_enc,
+        num_blocks=num_blocks_enc,
     ).apply(params_enc, batch)
     # Sampling from the distribution
     z = q.sample(seed=rng_1)
@@ -472,8 +472,8 @@ def main(_):
     p = ResNetDec(
         act_fn=act_fn,
         block_class=ResNetBlock,
-        # c_hidden=c_hidden_dec,
-        # num_blocks=num_blocks_dec,
+        c_hidden=c_hidden_dec,
+        num_blocks=num_blocks_dec,
     ).apply(params_dec, z)
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
