@@ -9,7 +9,9 @@
 /wandb
 /results
 /artifacts
-/hsc_photoz
+/datasets/__pycache__
+/datasets/.ipynb_checkpoints
+
 
 # Ignore the msgpack file
 checkpoint.msgpack
