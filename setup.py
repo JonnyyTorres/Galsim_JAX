@@ -1,6 +1,6 @@
 import setuptools
 
-with open("Readme.md", "r") as fh:
+with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
@@ -28,5 +28,6 @@ setuptools.setup(
         'tqdm',
         'astropy',
         'clu',
-        'quarks2cosmos @ https://github.com/EiffL/Quarks2CosmosDataChallenge.git']
+        'quarks2cosmos @ git+https://github.com/EiffL/Quarks2CosmosDataChallenge.git'
+        ]
 )
