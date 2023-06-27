@@ -19,4 +19,14 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.7",
+    install_requires=[
+        'flax',
+        'optax',
+        'tensorflow_probability',
+        'tensorflow-datasets',
+        'wandb',
+        'tqdm',
+        'astropy',
+        'clu',
+        'quarks2cosmos @ https://github.com/EiffL/Quarks2CosmosDataChallenge.git'
 )
