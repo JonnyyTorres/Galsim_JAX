@@ -28,5 +28,5 @@ setuptools.setup(
         'tqdm',
         'astropy',
         'clu',
-        'quarks2cosmos @ https://github.com/EiffL/Quarks2CosmosDataChallenge.git'
+        'quarks2cosmos @ https://github.com/EiffL/Quarks2CosmosDataChallenge.git']
 )
