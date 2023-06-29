@@ -9,18 +9,18 @@
 /wandb
 /results
 /artifacts
-/datasets/__pycache__
-/datasets/.ipynb_checkpoints
-
 
 # Ignore the msgpack file
 checkpoint.msgpack
 
 # Ignore the __pycache__ folder inside the pip package
+__pycache__
 /galsim_jax/__pycache__
+/galsim_jax/datasets/__pycache__
 
 # Ignore the test notebook
 test.ipynb
+notebooks/Untitled.ipynb
 
 # Ignore the train.sh file
 train.sh 

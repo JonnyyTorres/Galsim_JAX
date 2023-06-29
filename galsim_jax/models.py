@@ -109,6 +109,7 @@ class ResNetDec(nn.Module):
 
         x = nn.activation.softplus(x)
         # Image is now 64x64x5
-        r = tfd.MultivariateNormalDiag(loc=x, scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
+        # r = tfd.MultivariateNormalDiag(loc=x, scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
+        # r = tfd.MultivariateNormalDiag(loc=x, scale_diag=[0.01, 0.01])
 
-        return r
+        return x

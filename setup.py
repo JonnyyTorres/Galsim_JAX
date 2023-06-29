@@ -20,13 +20,13 @@ setuptools.setup(
     ],
     python_requires=">=3.7",
     install_requires=[
-        'flax',
-        'optax',
-        'tensorflow_probability',
-        'tensorflow-datasets',
-        'wandb',
-        'tqdm',
-        'astropy',
-        'clu',
-        ]
+        "flax",
+        "optax",
+        "tensorflow_probability",
+        "tensorflow-datasets",
+        "wandb",
+        "tqdm",
+        "astropy",
+        "clu",
+    ],
 )
