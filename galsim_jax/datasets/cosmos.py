@@ -4,6 +4,12 @@ import tensorflow as tf
 import numpy as np
 import galsim as gs
 
+from tensorflow_datasets.core.utils import gcs_utils
+
+# disable internet connection
+gcs_utils.gcs_dataset_info_files = lambda *args, **kwargs: None
+gcs_utils.is_dataset_on_gcs = lambda *args, **kwargs: False
+
 _CITATION = """
 """
 
