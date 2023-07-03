@@ -10,9 +10,8 @@ import optax
 import wandb
 import logging
 
-from galsim_jax.models import ResNetEnc, ResNetDec, ResNetBlock
+from galsim_jax.dif_models import AutoencoderKLModule
 from galsim_jax.utils import (
-    lr_schedule,
     save_checkpoint,
     load_checkpoint,
     get_wandb_local_dir,
@@ -21,6 +20,8 @@ from galsim_jax.utils import (
     save_samples,
     get_git_commit_version,
     get_activation_fn,
+    get_optimizer,
+    new_optimizer,
 )
 
 from galsim_jax.convolution import convolve
@@ -41,25 +42,25 @@ from absl import flags
 flags.DEFINE_string("dataset", "Cosmos/25.2", "Suite of simulations to learn from")
 # flags.DEFINE_string("output_dir", "./weights/gp-sn1v5", "Folder where to store model.")
 flags.DEFINE_integer("batch_size", 64, "Size of the batch to train on.")
-flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for the optimizer.")
-flags.DEFINE_integer("training_steps", 25000, "Number of training steps to run.")
+flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for the optimizer.")
+flags.DEFINE_integer("training_steps", 50000, "Number of training steps to run.")
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
 # flags.DEFINE_boolean('prob_output', True, 'The encoder has or not a probabilistic output')
-flags.DEFINE_float("reg_value", 1e-2, "Regularization value of the KL Divergence.")
-flags.DEFINE_integer("gpu", 0, "Index of the GPU to use, e.g.: 0, 1, 2, etc...")
+flags.DEFINE_float("reg_value", 1e-6, "Regularization value of the KL Divergence.")
+flags.DEFINE_integer("gpu", 0, "Index of the GPU to use, e.g.: 0, 1, 2, etc.")
 flags.DEFINE_string(
-    "experiment", "model_1", "Type of experiment, e.g. 'model_1', 'model_2', etc..."
+    "experiment", "model_1", "Type of experiment, e.g. 'model_1', 'model_2', etc."
 )
-flags.DEFINE_string(
-    "project", "galsim-jax-resnet", "Name of the project, e.g.: 'resnet-comp-dim'"
-)
+flags.DEFINE_string("project", "VAE-SD", "Name of the project, e.g.: 'VAE-SD'")
 flags.DEFINE_string(
     "name", "first-model", "Name for the experiment, e.g.: 'dim_64_kl_0.01'"
 )
 flags.DEFINE_string(
     "act_fn", "gelu", "Activation function, e.g.: 'gelu', 'leaky_relu', etc."
 )
-
+flags.DEFINE_string("opt", "adam", "Optimizer, e.g.: 'adam', 'adamw'")
+flags.DEFINE_integer("resblocks", 2, "Number of resnet blocks.: 1, 2.")
+flags.DEFINE_integer("step_sch", 40000, "Steps for the lr_schedule")
 
 FLAGS = flags.FLAGS
 
@@ -95,7 +96,7 @@ def main(_):
             data["psf"] = tf.expand_dims(data["psf"], axis=-1)
             data["image"] = tf.expand_dims(data["image"], axis=-1)
             return data
-
+        
         if mode == "train":
             dataset = tfds.load(FLAGS.dataset, split="train[:80%]")
             dataset = dataset.repeat()
@@ -104,7 +105,7 @@ def main(_):
             dataset = tfds.load(FLAGS.dataset, split="train[80%:]")
 
         dataset = dataset.batch(batch_size, drop_remainder=True)
-        dataset = dataset.map(preprocess_image)
+        dataset = dataset.map(preprocess_image)  # Apply data preprocessing
         dataset = dataset.prefetch(
             -1
         )  # fetch next batches while training current one (-1 for autotune)
@@ -114,83 +115,56 @@ def main(_):
     dset = input_fn().as_numpy_iterator()
 
     # Generating a random key for JAX
-    rng = random.PRNGKey(0)
+    rng, rng_2 = jax.random.PRNGKey(0), jax.random.PRNGKey(1)
     # Size of the input to initialize the encoder parameters
-    batch_enc = jnp.ones((1, 128, 128, 1))
+    batch_autoenc = jnp.ones((1, 128, 128, 1))
 
     latent_dim = 128
-    c_hidden_enc = (128, 256, 512)
-    num_blocks_enc = (1, 1, 1)
-    c_hidden_dec = (256, 128, 64, 1)
-    num_blocks_dec = (1, 1, 1, 1)
-
-    # Size of the input to initialize the decoder parameters
-    batch_dec = jnp.ones((1, 8, 8, 128))
-
     act_fn = get_activation_fn(FLAGS.act_fn)
 
-    # Initializing the Encoder
-    Encoder = ResNetEnc(
+    # Initializing the AutoEncoder
+    Autoencoder = AutoencoderKLModule(
+        ch_mult=(1, 2, 4),
+        num_res_blocks=FLAGS.resblocks,
+        double_z=True,
+        z_channels=1,
+        resolution=latent_dim,
+        in_channels=1,
+        out_ch=1,
+        ch=1,
+        embed_dim=1,
         act_fn=act_fn,
-        block_class=ResNetBlock,
-        latent_dim=latent_dim,
-        c_hidden=c_hidden_enc,
-        num_blocks=num_blocks_enc,
     )
-    params_enc = Encoder.init(rng, batch_enc)
+
+    params = Autoencoder.init(rng, x=batch_autoenc, seed=rng_2)
 
     # Taking 64 images of the dataset
     batch_im = next(dset)
     # Generating new keys to use them for inference
-    rng, rng_1 = random.split(rng)
-
-    # Initializing the Decoder
-    Decoder = ResNetDec(
-        act_fn=act_fn,
-        block_class=ResNetBlock,
-        c_hidden=c_hidden_dec,
-        num_blocks=num_blocks_dec,
-    )
-    params_dec = Decoder.init(rng_1, batch_dec)
-
-    # Defining a general list of the parameters
-    params = [params_enc, params_dec]
+    rng_1, rng_2 = jax.random.split(rng_2)
 
     # Initialisation
-    optimizer = optax.chain(
-        optax.adam(FLAGS.learning_rate), optax.scale_by_schedule(lr_schedule)
-    )
-
+    optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
     opt_state = optimizer.init(params)
 
     @jax.jit
     def loss_fn(params, rng_key, batch, reg_term):  # state, rng_key, batch):
         """Function to define the loss function"""
 
-        params_enc, params_dec = params
-
         x = batch["image"]
         psf = batch["psf"]
 
         # Autoencode an example
-        q = Encoder.apply(params_enc, x)
+        q = Autoencoder.apply(params, x=x, seed=rng_key)
 
-        # Sample from the posterior
-        z = q.sample(seed=rng_key)
-
-        # Decode the sample
-        p = Decoder.apply(params_dec, z)
-
-        p = jax.vmap(convolve)(p[..., 0], psf[..., 0])
+        p = jax.vmap(convolve)(q[..., 0], psf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
 
         p = tfd.MultivariateNormalDiag(loc=p, scale_diag=[0.01])
 
         # KL divergence between the prior distribution and p
-        kl = tfd.kl_divergence(
-            p, tfd.MultivariateNormalDiag(jnp.zeros((1, 128, 128, 1)))
-        )
+        kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 128, 128, 1))))
 
         # Compute log-likelihood
         log_likelihood = p.log_prob(x)
@@ -202,11 +176,10 @@ def main(_):
 
         loss = -jnp.mean(elbo)
         return loss, -jnp.mean(log_likelihood)
-
-    # Veryfing that the 'value_and_grad' works fine
-    # (loss, log_likelihood), grads = jax.value_and_grad(loss_fn, has_aux=True)(params, rng, batch_im, FLAGS.reg_value)
-
-    # loss, log_likelihood = loss_fn(params, rng, batch_im, FLAGS.reg_value)
+    
+    """    # Veryfing that the 'value_and_grad' works fine
+    loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
+    """
 
     @jax.jit
     def update(params, rng_key, opt_state, batch):
@@ -218,10 +191,7 @@ def main(_):
         new_params = optax.apply_updates(params, updates)
         return loss, log_likelihood, new_params, new_opt_state
 
-    # loss, log_likelihood, params, opt_state = update(params, rng, opt_state, batch_im)
-
-    # print(loss)
-    # print(log_likelihood)
+    """loss, log_likelihood, params, opt_state = update(params, rng_1, opt_state, batch_im)"""
 
     # Login to wandb
     wandb.login()
@@ -249,6 +219,11 @@ def main(_):
     config.type_model = FLAGS.experiment
     config.commit_version = get_git_commit_version()
     config.act_fn = FLAGS.act_fn
+    config.opt = FLAGS.opt
+    config.resnet_blocks = FLAGS.resblocks
+    config.steps_schedule = FLAGS.step_sch
+    # config.lr_method = "Warmup Cosine"
+    config.interpolation = "Bicubic"
 
     # Define the metrics we are interested in the minimum of
     wandb.define_metric("loss", summary="min")
@@ -288,8 +263,8 @@ def main(_):
         # Saving best checkpoint
         if loss < best_eval_loss:
             best_eval_loss = loss
-
-            if best_eval_loss < 1:
+        
+            if best_eval_loss < 0:
                 save_checkpoint("checkpoint.msgpack", params, step)
 
         # Calculating the loss for all the test images
@@ -406,30 +381,13 @@ def main(_):
     batch = x[:16, ...]
     psf = psf[:16, ...]
 
-    # Dividing the list of parameters obtained before
-    params_enc, params_dec = params
-    # Distribution of latent space calculated using the batch of data
-    q = ResNetEnc(
-        act_fn=act_fn,
-        block_class=ResNetBlock,
-        latent_dim=latent_dim,
-        c_hidden=c_hidden_enc,
-        num_blocks=num_blocks_enc,
-    ).apply(params_enc, batch)
-    # Sampling from the distribution
-    z = q.sample(seed=rng_1)
-
-    # Posterior distribution
-    p = ResNetDec(
-        act_fn=act_fn,
-        block_class=ResNetBlock,
-        c_hidden=c_hidden_dec,
-        num_blocks=num_blocks_dec,
-    ).apply(params_dec, z)
+    rng, rng_1 = random.split(rng)
+    # X estimated distribution
+    q = Autoencoder.apply(params, x=batch, seed=rng_1)
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
 
-    p = jax.vmap(convolve)(p[..., 0], psf[..., 0])
+    p = jax.vmap(convolve)(q[..., 0], psf[..., 0])
 
     p = tf.expand_dims(p, axis=-1)
 
