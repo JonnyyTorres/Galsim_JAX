@@ -36,14 +36,14 @@ class ResnetBlock(nn.Module):
     act_fn: callable = nn.gelu  # Activation function
 
     def setup(self):
-        self.norm1 = Normalize(num_groups=5)
+        self.norm1 = Normalize(num_groups=1)
         self.conv1 = nn.Conv(
             self.out_channels,
             kernel_size=(3, 3),
             strides=(1, 1),
             padding=((1, 1), (1, 1)),
         )
-        self.norm2 = Normalize(num_groups=5)
+        self.norm2 = Normalize(num_groups=1)
         self.conv2 = nn.Conv(
             self.out_channels,
             kernel_size=(3, 3),
@@ -172,7 +172,7 @@ class Encoder(nn.Module):
         mid_channels = self.ch * self.ch_mult[-1]
         self.mid = MidBlock(mid_channels)
         # end
-        self.norm_out = Normalize()
+        self.norm_out = Normalize(num_groups=1)
         self.conv_out = nn.Conv(
             self.z_channels * 2 if self.double_z else self.z_channels,
             kernel_size=(3, 3),
@@ -319,7 +319,7 @@ class Decoder(nn.Module):
         self.up = list(reversed(upsample_blocks))  # reverse to get consistent order
 
         # end
-        self.norm_out = Normalize(num_groups=5)
+        self.norm_out = Normalize(num_groups=1)
         self.conv_out = nn.Conv(
             self.out_ch,
             kernel_size=(3, 3),
@@ -410,8 +410,8 @@ class AutoencoderKLModule(nn.Module):
         h = self.post_quant_conv(h)
         h = self.decoder(h)
         # Image is now 64x64x5
-        q = tfd.MultivariateNormalDiag(loc=h, scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
-        return q
+        # q = tfd.MultivariateNormalDiag(loc=h, scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
+        return h #q
 
     def __call__(self, x, seed):
         posterior = self.encode(x)

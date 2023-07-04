@@ -3,42 +3,51 @@ import tensorflow_datasets as tfds
 import numpy as np
 import galsim as gs
 
+from tensorflow_datasets.core.utils import gcs_utils
+
+# disable internet connection
+gcs_utils.gcs_dataset_info_files = lambda *args, **kwargs: None
+gcs_utils.is_dataset_on_gcs = lambda *args, **kwargs: False
+
 _CITATION = """
 """
 
 _DESCRIPTION = """
 """
 
-class CosmosConfig(tfds.core.BuilderConfig):
-  """BuilderConfig for Cosmos."""
 
-  def __init__(self, *, sample="25.2", stamp_size=128, pixel_scale=0.03, **kwargs):
-    """BuilderConfig for Cosmos.
-    Args:
-      sample: which Cosmos sample to use, "25.2".
-      stamp_size: image stamp size in pixels.
-      pixel_scale: pixel scale of stamps in arcsec.
-      **kwargs: keyword arguments forwarded to super.
-    """
-    v1 = tfds.core.Version("0.0.1")
-    super(CosmosConfig, self).__init__(
-        description=("Cosmos stamps from %s sample in %d x %d resolution, %.2f arcsec/pixel." %
-                      (sample, stamp_size, stamp_size, pixel_scale)),
-        version=v1,
-        **kwargs)
-    self.stamp_size = stamp_size
-    self.pixel_scale = pixel_scale
-    self.sample = sample
+class CosmosConfig(tfds.core.BuilderConfig):
+    """BuilderConfig for Cosmos."""
+
+    def __init__(self, *, sample="25.2", stamp_size=128, pixel_scale=0.03, **kwargs):
+        """BuilderConfig for Cosmos.
+        Args:
+          sample: which Cosmos sample to use, "25.2".
+          stamp_size: image stamp size in pixels.
+          pixel_scale: pixel scale of stamps in arcsec.
+          **kwargs: keyword arguments forwarded to super.
+        """
+        v1 = tfds.core.Version("0.0.1")
+        super(CosmosConfig, self).__init__(
+            description=(
+                "Cosmos stamps from %s sample in %d x %d resolution, %.2f arcsec/pixel."
+                % (sample, stamp_size, stamp_size, pixel_scale)
+            ),
+            version=v1,
+            **kwargs
+        )
+        self.stamp_size = stamp_size
+        self.pixel_scale = pixel_scale
+        self.sample = sample
+
 
 class Cosmos(tfds.core.GeneratorBasedBuilder):
-  """DatasetBuilder for Cosmos dataset."""
+    """DatasetBuilder for Cosmos dataset."""
 
-  VERSION = tfds.core.Version('0.0.1')
-  RELEASE_NOTES = {
-      '0.0.1': 'Initial release.',
-  }
-  
-  BUILDER_CONFIGS = [CosmosConfig(name="25.2", sample="25.2")]
+    VERSION = tfds.core.Version("0.0.1")
+    RELEASE_NOTES = {
+        "0.0.1": "Initial release.",
+    }
 
   def _info(self) -> tfds.core.DatasetInfo:
     """Returns the dataset metadata."""
@@ -62,29 +71,57 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
         citation=_CITATION,
     )
 
-  def _split_generators(self, dl_manager: tfds.download.DownloadManager):
-    """Returns SplitGenerators."""
-    return [
-        tfds.core.SplitGenerator(
-            name=tfds.Split.TRAIN,
-            gen_kwargs={
-            "offset": 0,
-            "size": 40000,
-            },),
-        tfds.core.SplitGenerator(
-            name=tfds.Split.TEST,
-            gen_kwargs={
-            "offset": 40000,
-            "size": 10000,
-            },
-        ),
-    ]
+    def _info(self) -> tfds.core.DatasetInfo:
+        """Returns the dataset metadata."""
+        # TODO(kappatng): Specifies the tfds.core.DatasetInfo object
+        return tfds.core.DatasetInfo(
+            builder=self,
+            description=_DESCRIPTION,
+            features=tfds.features.FeaturesDict(
+                {
+                    # These are the features of your dataset like images, labels ...
+                    "image": tfds.features.Tensor(
+                        shape=[
+                            self.builder_config.stamp_size,
+                            self.builder_config.stamp_size,
+                        ],
+                        dtype=tf.float32,
+                    ),
+                    "psf": tfds.features.Tensor(
+                        shape=[
+                            self.builder_config.stamp_size,
+                            self.builder_config.stamp_size,
+                        ],
+                        dtype=tf.float32,
+                    ),
+                }
+            ),
+            # If there's a common (input, target) tuple from the
+            # features, specify them here. They'll be used if
+            # `as_supervised=True` in `builder.as_dataset`.
+            supervised_keys=("image", "image"),
+            homepage="https://dataset-homepage/",
+            citation=_CITATION,
+        )
 
-  def _generate_examples(self, offset, size):
-    """Yields examples."""
-    # Loads the galsim COSMOS catalog
-    cat = gs.COSMOSCatalog(sample=self.builder_config.sample)
-    ngal = size 
+    def _split_generators(self, dl_manager: tfds.download.DownloadManager):
+        """Returns SplitGenerators."""
+        return [
+            tfds.core.SplitGenerator(
+                name=tfds.Split.TRAIN,
+                gen_kwargs={
+                    "offset": 0,
+                    "size": 40000,
+                },
+            ),
+            tfds.core.SplitGenerator(
+                name=tfds.Split.TEST,
+                gen_kwargs={
+                    "offset": 40000,
+                    "size": 10000,
+                },
+            ),
+        ]
 
     for i in range(ngal):
       gal = cat.makeGalaxy(i+offset)
