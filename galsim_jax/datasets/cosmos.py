@@ -15,6 +15,7 @@ _CITATION = """
 _DESCRIPTION = """
 """
 
+
 class CosmosConfig(tfds.core.BuilderConfig):
     """BuilderConfig for Cosmos."""
 
@@ -28,22 +29,26 @@ class CosmosConfig(tfds.core.BuilderConfig):
         """
         v1 = tfds.core.Version("0.0.1")
         super(CosmosConfig, self).__init__(
-            description=("Cosmos stamps from %s sample in %d x %d resolution, %.2f arcsec/pixel." %
-                        (sample, stamp_size, stamp_size, pixel_scale)),
+            description=(
+                "Cosmos stamps from %s sample in %d x %d resolution, %.2f arcsec/pixel."
+                % (sample, stamp_size, stamp_size, pixel_scale)
+            ),
             version=v1,
-            **kwargs)
+            **kwargs
+        )
         self.stamp_size = stamp_size
         self.pixel_scale = pixel_scale
         self.sample = sample
 
+
 class Cosmos(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for Cosmos dataset."""
 
-    VERSION = tfds.core.Version('0.0.1')
+    VERSION = tfds.core.Version("0.0.1")
     RELEASE_NOTES = {
-        '0.0.1': 'Initial release.',
+        "0.0.1": "Initial release.",
     }
-    
+
     BUILDER_CONFIGS = [CosmosConfig(name="25.2", sample="25.2")]
 
     def _info(self) -> tfds.core.DatasetInfo:
@@ -52,19 +57,31 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
         return tfds.core.DatasetInfo(
             builder=self,
             description=_DESCRIPTION,
-            features=tfds.features.FeaturesDict({
-                # These are the features of your dataset like images, labels ...
-                "image": tfds.features.Tensor(shape=[self.builder_config.stamp_size,
-                                                    self.builder_config.stamp_size], dtype=np.float32),
-                "psf":   tfds.features.Tensor(shape=[self.builder_config.stamp_size,
-                                                    self.builder_config.stamp_size], dtype=np.float32),
-                "noise_std": tfds.features.Scalar(dtype=np.float32)
-        }),
+            features=tfds.features.FeaturesDict(
+                {
+                    # These are the features of your dataset like images, labels ...
+                    "image": tfds.features.Tensor(
+                        shape=[
+                            self.builder_config.stamp_size,
+                            self.builder_config.stamp_size,
+                        ],
+                        dtype=np.float32,
+                    ),
+                    "psf": tfds.features.Tensor(
+                        shape=[
+                            self.builder_config.stamp_size,
+                            self.builder_config.stamp_size,
+                        ],
+                        dtype=np.float32,
+                    ),
+                    "noise_std": tfds.features.Scalar(dtype=np.float32),
+                }
+            ),
             # If there's a common (input, target) tuple from the
             # features, specify them here. They'll be used if
             # `as_supervised=True` in `builder.as_dataset`.
             supervised_keys=("image", "image"),
-            homepage='https://dataset-homepage/',
+            homepage="https://dataset-homepage/",
             citation=_CITATION,
         )
 
@@ -74,14 +91,15 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
             tfds.core.SplitGenerator(
                 name=tfds.Split.TRAIN,
                 gen_kwargs={
-                "offset": 0,
-                "size": 40000,
-                },),
+                    "offset": 0,
+                    "size": 40000,
+                },
+            ),
             tfds.core.SplitGenerator(
                 name=tfds.Split.TEST,
                 gen_kwargs={
-                "offset": 40000,
-                "size": 10000,
+                    "offset": 40000,
+                    "size": 10000,
                 },
             ),
         ]
@@ -90,26 +108,30 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
         """Yields examples."""
         # Loads the galsim COSMOS catalog
         cat = gs.COSMOSCatalog(sample=self.builder_config.sample)
-        ngal = size 
+        ngal = size
 
         for i in range(ngal):
-        gal = cat.makeGalaxy(i+offset)
-        cosmos_gal = gs.Convolve(gal, gal.original_psf)
-        
-        cosmos_stamp = cosmos_gal.drawImage(nx=self.builder_config.stamp_size, 
-                                            ny=self.builder_config.stamp_size, 
-                                            scale=self.builder_config.pixel_scale, 
-                                            method='no_pixel').array.astype('float32')
-                                            
-        cosmos_psf_stamp = gal.original_psf.drawImage(nx=self.builder_config.stamp_size, 
-                                            ny=self.builder_config.stamp_size, 
-                                            scale=self.builder_config.pixel_scale,
-                                            method='no_pixel').array.astype('float32')
+            gal = cat.makeGalaxy(i + offset)
+            cosmos_gal = gs.Convolve(gal, gal.original_psf)
 
-        noise_std = np.sqrt(cosmos_gal.noise.getVariance())
+            cosmos_stamp = cosmos_gal.drawImage(
+                nx=self.builder_config.stamp_size,
+                ny=self.builder_config.stamp_size,
+                scale=self.builder_config.pixel_scale,
+                method="no_pixel",
+            ).array.astype("float32")
 
-        yield '%d'%i, {
-            "image": cosmos_stamp, 
-            "psf":cosmos_psf_stamp,
-            "noise_std": noise_std
-        }
+            cosmos_psf_stamp = gal.original_psf.drawImage(
+                nx=self.builder_config.stamp_size,
+                ny=self.builder_config.stamp_size,
+                scale=self.builder_config.pixel_scale,
+                method="no_pixel",
+            ).array.astype("float32")
+
+            noise_std = np.sqrt(cosmos_gal.noise.getVariance())
+
+            yield "%d" % i, {
+                "image": cosmos_stamp,
+                "psf": cosmos_psf_stamp,
+                "noise_std": noise_std,
+            }
