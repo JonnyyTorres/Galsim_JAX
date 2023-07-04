@@ -1,6 +1,5 @@
 """ TensorFlow Dataset of COSMOS images. """
 import tensorflow_datasets as tfds
-import tensorflow as tf
 import numpy as np
 import galsim as gs
 
@@ -50,9 +49,10 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
         features=tfds.features.FeaturesDict({
             # These are the features of your dataset like images, labels ...
             "image": tfds.features.Tensor(shape=[self.builder_config.stamp_size,
-                                                 self.builder_config.stamp_size], dtype=tf.float32),
+                                                 self.builder_config.stamp_size], dtype=np.float32),
             "psf":   tfds.features.Tensor(shape=[self.builder_config.stamp_size,
-                                                 self.builder_config.stamp_size], dtype=tf.float32)
+                                                 self.builder_config.stamp_size], dtype=np.float32),
+            "noise_std": tfds.features.Scalar(dtype=np.float32)
 	}),
         # If there's a common (input, target) tuple from the
         # features, specify them here. They'll be used if
@@ -99,4 +99,11 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
                                           ny=self.builder_config.stamp_size, 
                                           scale=self.builder_config.pixel_scale,
                                           method='no_pixel').array.astype('float32')
-      yield '%d'%i, {"image": cosmos_stamp, "psf":cosmos_psf_stamp}
+
+      noise_std = np.sqrt(cosmos_gal.noise.getVariance())
+
+      yield '%d'%i, {
+        "image": cosmos_stamp, 
+        "psf":cosmos_psf_stamp,
+        "noise_std": noise_std
+      }
