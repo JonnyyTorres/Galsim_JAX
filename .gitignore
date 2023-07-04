@@ -1,6 +1,7 @@
 # Ignore the .ipynb_checkpoints folder
 /.ipynb_checkpoints
 /notebooks/.ipynb_checkpoints
+/notebooks/wandb
 
 # Ignore the galsim-jax.egg-info folder
 /galsim_jax.egg-info
