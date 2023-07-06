@@ -153,6 +153,7 @@ def main(_):
 
         x = batch["image"]
         psf = batch["psf"]
+        std = batch["noise_std"].reshape((-1, 1, 1, 1))
 
         # Autoencode an example
         q = Autoencoder.apply(params, x=x, seed=rng_key)
@@ -161,7 +162,7 @@ def main(_):
 
         p = jnp.expand_dims(p, axis=-1)
 
-        p = tfd.MultivariateNormalDiag(loc=p, scale_diag=[0.01])
+        p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
 
         # KL divergence between the prior distribution and p
         kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 128, 128, 1))))
@@ -376,10 +377,12 @@ def main(_):
 
     x = batch["image"]
     psf = batch["psf"]
+    std = batch["noise_std"].reshape((-1, 1, 1, 1))
 
     # Taking 16 images as example
     batch = x[:16, ...]
     psf = psf[:16, ...]
+    std = std[:16, ...]
 
     rng, rng_1 = random.split(rng)
     # X estimated distribution
@@ -391,7 +394,7 @@ def main(_):
 
     p = tf.expand_dims(p, axis=-1)
 
-    p = tfd.MultivariateNormalDiag(loc=p, scale_diag=[0.01])
+    p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
 
     z = p.sample(seed=rng_1)
 
