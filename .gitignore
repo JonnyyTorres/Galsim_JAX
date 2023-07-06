@@ -21,7 +21,7 @@ __pycache__
 
 # Ignore the test notebook
 test.ipynb
-notebooks/Untitled.ipynb
+# notebooks/Untitled.ipynb
 
 # Ignore the train.sh file
 train.sh 
