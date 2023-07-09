@@ -102,14 +102,14 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
                 name=tfds.Split.TRAIN,
                 gen_kwargs={
                     "offset": 0,
-                    "size": 4000,
+                    "size": 40000,
                 },
             ),
             tfds.core.SplitGenerator(
                 name=tfds.Split.TEST,
                 gen_kwargs={
-                    "offset": 4000,
-                    "size": 1000,
+                    "offset": 40000,
+                    "size": 10000,
                 },
             ),
         ]
