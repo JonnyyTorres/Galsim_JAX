@@ -24,7 +24,7 @@ from galsim_jax.utils import (
     new_optimizer,
 )
 
-from galsim_jax.convolution import convolve
+from galsim_jax.convolution import convolve_kpsf
 
 from jax.lib import xla_bridge
 from astropy.stats import mad_std
@@ -93,7 +93,8 @@ def main(_):
 
         def preprocess_image(data):
             # Reshape 'psf' and 'image' to (128, 128, 1)
-            data["psf"] = tf.expand_dims(data["psf"], axis=-1)
+            data["kpsf_real"] = tf.expand_dims(data["kpsf_real"], axis=-1)
+            data["kpsf_imag"] = tf.expand_dims(data["kpsf_imag"], axis=-1)
             data["image"] = tf.expand_dims(data["image"], axis=-1)
             return data
         
@@ -152,13 +153,15 @@ def main(_):
         """Function to define the loss function"""
 
         x = batch["image"]
-        psf = batch["psf"]
-        std = batch["noise_std"].reshape((-1, 1, 1, 1))
+        kpsf_real = batch["kpsf_imag"]
+        kpsf_imag = batch["kpsf_imag"]
+        kpsf = kpsf_real + 1j*kpsf_imag
+        std = np.ones(x.shape[0]).reshape((-1, 1, 1, 1))
 
         # Autoencode an example
         q = Autoencoder.apply(params, x=x, seed=rng_key)
 
-        p = jax.vmap(convolve)(q[..., 0], psf[..., 0])
+        p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
 
@@ -376,8 +379,11 @@ def main(_):
     batch = next(test_iterator)
 
     x = batch["image"]
-    psf = batch["psf"]
-    std = batch["noise_std"].reshape((-1, 1, 1, 1))
+    kpsf_real = batch["kpsf_imag"]
+    kpsf_imag = batch["kpsf_imag"]
+    kpsf = kpsf_real + 1j*kpsf_imag
+    std = np.ones(x.shape[0]).reshape((-1, 1, 1, 1))
+
 
     # Taking 16 images as example
     batch = x[:16, ...]
@@ -390,7 +396,7 @@ def main(_):
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
 
-    p = jax.vmap(convolve)(q[..., 0], psf[..., 0])
+    p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
     p = tf.expand_dims(p, axis=-1)
 
