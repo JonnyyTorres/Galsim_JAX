@@ -26,6 +26,8 @@ from galsim_jax.utils import (
 
 from galsim_jax.convolution import convolve_kpsf
 
+from galsim_jax.datasets import cosmos
+
 from jax.lib import xla_bridge
 from astropy.stats import mad_std
 from tensorflow_probability.substrates import jax as tfp
@@ -99,11 +101,11 @@ def main(_):
             return data
         
         if mode == "train":
-            dataset = tfds.load(FLAGS.dataset, split="train[:80%]")
+            dataset = tfds.load(FLAGS.dataset, split="train")
             dataset = dataset.repeat()
             dataset = dataset.shuffle(10000)
         else:
-            dataset = tfds.load(FLAGS.dataset, split="train[80%:]")
+            dataset = tfds.load(FLAGS.dataset, split="test")
 
         dataset = dataset.batch(batch_size, drop_remainder=True)
         dataset = dataset.map(preprocess_image)  # Apply data preprocessing
@@ -156,7 +158,7 @@ def main(_):
         kpsf_real = batch["kpsf_imag"]
         kpsf_imag = batch["kpsf_imag"]
         kpsf = kpsf_real + 1j*kpsf_imag
-        std = np.ones(x.shape[0]).reshape((-1, 1, 1, 1))
+        std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
 
         # Autoencode an example
         q = Autoencoder.apply(params, x=x, seed=rng_key)
@@ -164,7 +166,7 @@ def main(_):
         p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
-
+        
         p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
 
         # KL divergence between the prior distribution and p
@@ -382,7 +384,7 @@ def main(_):
     kpsf_real = batch["kpsf_imag"]
     kpsf_imag = batch["kpsf_imag"]
     kpsf = kpsf_real + 1j*kpsf_imag
-    std = np.ones(x.shape[0]).reshape((-1, 1, 1, 1))
+    std = 0.005*np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
 
 
     # Taking 16 images as example
