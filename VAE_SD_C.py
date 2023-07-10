@@ -99,7 +99,7 @@ def main(_):
             data["kpsf_imag"] = tf.expand_dims(data["kpsf_imag"], axis=-1)
             data["image"] = tf.expand_dims(data["image"], axis=-1)
             return data
-        
+
         if mode == "train":
             dataset = tfds.load(FLAGS.dataset, split="train")
             dataset = dataset.repeat()
@@ -157,7 +157,7 @@ def main(_):
         x = batch["image"]
         kpsf_real = batch["kpsf_real"]
         kpsf_imag = batch["kpsf_imag"]
-        kpsf = kpsf_real + 1j*kpsf_imag
+        kpsf = kpsf_real + 1j * kpsf_imag
         std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
 
         # Autoencode an example
@@ -166,11 +166,13 @@ def main(_):
         p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
-        
+
         p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
 
         # KL divergence between the prior distribution and p
-        kl = tfd.kl_divergence(p, tfd.MultivariateNormalDiag(jnp.zeros((1, 128, 128, 1))))
+        kl = tfd.kl_divergence(
+            p, tfd.MultivariateNormalDiag(jnp.zeros((1, 128, 128, 1)))
+        )
 
         # Compute log-likelihood
         log_likelihood = p.log_prob(x)
@@ -182,7 +184,7 @@ def main(_):
 
         loss = -jnp.mean(elbo)
         return loss, -jnp.mean(log_likelihood)
-    
+
     """    # Veryfing that the 'value_and_grad' works fine
     loss, grads = jax.value_and_grad(loss_fn)(params, rng, batch_im, kl_reg_w)
     """
@@ -269,7 +271,7 @@ def main(_):
         # Saving best checkpoint
         if loss < best_eval_loss:
             best_eval_loss = loss
-        
+
             if best_eval_loss < 0:
                 save_checkpoint("checkpoint.msgpack", params, step)
 
@@ -306,7 +308,7 @@ def main(_):
             )
 
     # Loading checkpoint for the best step
-    #params = load_checkpoint("checkpoint.msgpack", params)
+    # params = load_checkpoint("checkpoint.msgpack", params)
 
     # Obtaining the step with the lowest loss value
     loss_min = min(losses)
@@ -383,9 +385,8 @@ def main(_):
     x = batch["image"]
     kpsf_real = batch["kpsf_real"]
     kpsf_imag = batch["kpsf_imag"]
-    kpsf = kpsf_real + 1j*kpsf_imag
-    std = 0.005*np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
-
+    kpsf = kpsf_real + 1j * kpsf_imag
+    std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
 
     # Taking 16 images as example
     batch = x[:16, ...]

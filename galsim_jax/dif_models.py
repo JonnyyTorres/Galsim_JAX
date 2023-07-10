@@ -411,7 +411,7 @@ class AutoencoderKLModule(nn.Module):
         h = self.decoder(h)
         # Image is now 64x64x5
         # q = tfd.MultivariateNormalDiag(loc=h, scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
-        return h #q
+        return h  # q
 
     def __call__(self, x, seed):
         posterior = self.encode(x)

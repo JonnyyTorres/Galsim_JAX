@@ -73,14 +73,14 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
                     "kpsf_real": tfds.features.Tensor(
                         shape=[
                             self.builder_config.stamp_size,
-                            self.builder_config.stamp_size//2+1,
+                            self.builder_config.stamp_size // 2 + 1,
                         ],
                         dtype=np.float32,
                     ),
                     "kpsf_imag": tfds.features.Tensor(
                         shape=[
                             self.builder_config.stamp_size,
-                            self.builder_config.stamp_size//2+1,
+                            self.builder_config.stamp_size // 2 + 1,
                         ],
                         dtype=np.float32,
                     ),
@@ -134,15 +134,22 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
             interp_factor = 1
             padding_factor = 1
             Nk = self.builder_config.stamp_size * interp_factor * padding_factor
-            bounds = _BoundsI(0, Nk//2, -Nk//2, Nk//2-1)
-            imkpsf = gal.original_psf.drawKImage(bounds=bounds,
-                            scale=2.*np.pi/(self.builder_config.stamp_size*padding_factor*self.builder_config.pixel_scale),
-                            recenter=False)
+            bounds = _BoundsI(0, Nk // 2, -Nk // 2, Nk // 2 - 1)
+            imkpsf = gal.original_psf.drawKImage(
+                bounds=bounds,
+                scale=2.0
+                * np.pi
+                / (
+                    self.builder_config.stamp_size
+                    * padding_factor
+                    * self.builder_config.pixel_scale
+                ),
+                recenter=False,
+            )
 
-            kpsf = np.fft.fftshift(imkpsf.array, 0).astype('complex64')
+            kpsf = np.fft.fftshift(imkpsf.array, 0).astype("complex64")
             kpsf_real = kpsf.real
             kpsf_imag = kpsf.imag
-
 
             # noise_std = np.sqrt(cosmos_gal.noise.getVariance())
 
