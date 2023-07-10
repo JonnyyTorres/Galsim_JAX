@@ -2,6 +2,9 @@
 import tensorflow_datasets as tfds
 import numpy as np
 import galsim as gs
+from galsim.bounds import _BoundsI
+
+import tensorflow as tf
 
 from tensorflow_datasets.core.utils import gcs_utils
 
@@ -67,14 +70,21 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
                         ],
                         dtype=np.float32,
                     ),
-                    "psf": tfds.features.Tensor(
+                    "kpsf_real": tfds.features.Tensor(
                         shape=[
                             self.builder_config.stamp_size,
-                            self.builder_config.stamp_size,
+                            self.builder_config.stamp_size//2+1,
                         ],
                         dtype=np.float32,
                     ),
-                    "noise_std": tfds.features.Scalar(dtype=np.float32),
+                    "kpsf_imag": tfds.features.Tensor(
+                        shape=[
+                            self.builder_config.stamp_size,
+                            self.builder_config.stamp_size//2+1,
+                        ],
+                        dtype=np.float32,
+                    ),
+                    # "noise_std": tfds.features.Scalar(dtype=tf.float32),
                 }
             ),
             # If there's a common (input, target) tuple from the
@@ -121,17 +131,24 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
                 method="no_pixel",
             ).array.astype("float32")
 
-            cosmos_psf_stamp = gal.original_psf.drawImage(
-                nx=self.builder_config.stamp_size,
-                ny=self.builder_config.stamp_size,
-                scale=self.builder_config.pixel_scale,
-                method="no_pixel",
-            ).array.astype("float32")
+            interp_factor = 1
+            padding_factor = 1
+            Nk = self.builder_config.stamp_size * interp_factor * padding_factor
+            bounds = _BoundsI(0, Nk//2, -Nk//2, Nk//2-1)
+            imkpsf = gal.original_psf.drawKImage(bounds=bounds,
+                            scale=2.*np.pi/(self.builder_config.stamp_size*padding_factor*self.builder_config.pixel_scale),
+                            recenter=False)
 
-            noise_std = np.sqrt(cosmos_gal.noise.getVariance())
+            kpsf = np.fft.fftshift(imkpsf.array, 0).astype('complex64')
+            kpsf_real = kpsf.real
+            kpsf_imag = kpsf.imag
+
+
+            # noise_std = np.sqrt(cosmos_gal.noise.getVariance())
 
             yield "%d" % i, {
                 "image": cosmos_stamp,
-                "psf": cosmos_psf_stamp,
-                "noise_std": noise_std,
+                "kpsf_real": kpsf_real,
+                "kpsf_imag": kpsf_imag,
+                # "noise_std": noise_std,
             }

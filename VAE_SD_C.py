@@ -24,7 +24,9 @@ from galsim_jax.utils import (
     new_optimizer,
 )
 
-from galsim_jax.convolution import convolve
+from galsim_jax.convolution import convolve_kpsf
+
+from galsim_jax.datasets import cosmos
 
 from jax.lib import xla_bridge
 from astropy.stats import mad_std
@@ -42,8 +44,8 @@ from absl import flags
 flags.DEFINE_string("dataset", "Cosmos/25.2", "Suite of simulations to learn from")
 # flags.DEFINE_string("output_dir", "./weights/gp-sn1v5", "Folder where to store model.")
 flags.DEFINE_integer("batch_size", 64, "Size of the batch to train on.")
-flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for the optimizer.")
-flags.DEFINE_integer("training_steps", 50000, "Number of training steps to run.")
+flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for the optimizer.")
+flags.DEFINE_integer("training_steps", 125000, "Number of training steps to run.")
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
 # flags.DEFINE_boolean('prob_output', True, 'The encoder has or not a probabilistic output')
 flags.DEFINE_float("reg_value", 1e-6, "Regularization value of the KL Divergence.")
@@ -93,16 +95,17 @@ def main(_):
 
         def preprocess_image(data):
             # Reshape 'psf' and 'image' to (128, 128, 1)
-            data["psf"] = tf.expand_dims(data["psf"], axis=-1)
+            data["kpsf_real"] = tf.expand_dims(data["kpsf_real"], axis=-1)
+            data["kpsf_imag"] = tf.expand_dims(data["kpsf_imag"], axis=-1)
             data["image"] = tf.expand_dims(data["image"], axis=-1)
             return data
         
         if mode == "train":
-            dataset = tfds.load(FLAGS.dataset, split="train[:80%]")
+            dataset = tfds.load(FLAGS.dataset, split="train")
             dataset = dataset.repeat()
             dataset = dataset.shuffle(10000)
         else:
-            dataset = tfds.load(FLAGS.dataset, split="train[80%:]")
+            dataset = tfds.load(FLAGS.dataset, split="test")
 
         dataset = dataset.batch(batch_size, drop_remainder=True)
         dataset = dataset.map(preprocess_image)  # Apply data preprocessing
@@ -152,16 +155,18 @@ def main(_):
         """Function to define the loss function"""
 
         x = batch["image"]
-        psf = batch["psf"]
-        std = batch["noise_std"].reshape((-1, 1, 1, 1))
+        kpsf_real = batch["kpsf_imag"]
+        kpsf_imag = batch["kpsf_imag"]
+        kpsf = kpsf_real + 1j*kpsf_imag
+        std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
 
         # Autoencode an example
         q = Autoencoder.apply(params, x=x, seed=rng_key)
 
-        p = jax.vmap(convolve)(q[..., 0], psf[..., 0])
+        p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
-
+        
         p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
 
         # KL divergence between the prior distribution and p
@@ -301,7 +306,7 @@ def main(_):
             )
 
     # Loading checkpoint for the best step
-    params = load_checkpoint("checkpoint.msgpack", params)
+    #params = load_checkpoint("checkpoint.msgpack", params)
 
     # Obtaining the step with the lowest loss value
     loss_min = min(losses)
@@ -376,12 +381,15 @@ def main(_):
     batch = next(test_iterator)
 
     x = batch["image"]
-    psf = batch["psf"]
-    std = batch["noise_std"].reshape((-1, 1, 1, 1))
+    kpsf_real = batch["kpsf_imag"]
+    kpsf_imag = batch["kpsf_imag"]
+    kpsf = kpsf_real + 1j*kpsf_imag
+    std = 0.005*np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
+
 
     # Taking 16 images as example
     batch = x[:16, ...]
-    psf = psf[:16, ...]
+    kpsf = kpsf[:16, ...]
     std = std[:16, ...]
 
     rng, rng_1 = random.split(rng)
@@ -390,7 +398,7 @@ def main(_):
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
 
-    p = jax.vmap(convolve)(q[..., 0], psf[..., 0])
+    p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
     p = tf.expand_dims(p, axis=-1)
 
