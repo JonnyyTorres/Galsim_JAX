@@ -2,6 +2,12 @@
 /.ipynb_checkpoints
 /notebooks/.ipynb_checkpoints
 /notebooks/wandb
+notebooks/Autoencoder_samples.png
+notebooks/Convolve_samples.png
+notebooks/MNDist_samples.png
+notebooks/Original_galaxies.png
+notebooks/Test_Inference.ipynb
+notebooks/Test_Inference_Variations.ipynb
 
 # Ignore the galsim-jax.egg-info folder
 /galsim_jax.egg-info
