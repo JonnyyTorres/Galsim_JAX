@@ -208,6 +208,7 @@ def get_optimizer(name, lr, num_steps):
     optimizer = {
         "adam": optax.chain(optax.adam(lr), optax.scale_by_schedule(lr_schedule)),
         "adamw": optax.chain(optax.adamw(lr), optax.scale_by_schedule(lr_schedule)),
+        "adafactor": optax.chain(optax.adafactor(lr), optax.scale_by_schedule(lr_schedule)),
     }
 
     if name not in optimizer:
