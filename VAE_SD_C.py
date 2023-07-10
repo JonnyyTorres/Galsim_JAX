@@ -44,8 +44,8 @@ from absl import flags
 flags.DEFINE_string("dataset", "Cosmos/25.2", "Suite of simulations to learn from")
 # flags.DEFINE_string("output_dir", "./weights/gp-sn1v5", "Folder where to store model.")
 flags.DEFINE_integer("batch_size", 64, "Size of the batch to train on.")
-flags.DEFINE_float("learning_rate", 1e-4, "Learning rate for the optimizer.")
-flags.DEFINE_integer("training_steps", 50000, "Number of training steps to run.")
+flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for the optimizer.")
+flags.DEFINE_integer("training_steps", 125000, "Number of training steps to run.")
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
 # flags.DEFINE_boolean('prob_output', True, 'The encoder has or not a probabilistic output')
 flags.DEFINE_float("reg_value", 1e-6, "Regularization value of the KL Divergence.")
@@ -306,7 +306,7 @@ def main(_):
             )
 
     # Loading checkpoint for the best step
-    params = load_checkpoint("checkpoint.msgpack", params)
+    #params = load_checkpoint("checkpoint.msgpack", params)
 
     # Obtaining the step with the lowest loss value
     loss_min = min(losses)
@@ -389,7 +389,7 @@ def main(_):
 
     # Taking 16 images as example
     batch = x[:16, ...]
-    psf = psf[:16, ...]
+    kpsf = kpsf[:16, ...]
     std = std[:16, ...]
 
     rng, rng_1 = random.split(rng)
