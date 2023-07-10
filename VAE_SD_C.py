@@ -43,26 +43,26 @@ from absl import flags
 # flags.DEFINE_string("input_folder", "/data/tensorflow_datasets/", "Location of the input images")
 flags.DEFINE_string("dataset", "Cosmos/25.2", "Suite of simulations to learn from")
 # flags.DEFINE_string("output_dir", "./weights/gp-sn1v5", "Folder where to store model.")
-flags.DEFINE_integer("batch_size", 64, "Size of the batch to train on.")
-flags.DEFINE_float("learning_rate", 1e-3, "Learning rate for the optimizer.")
+flags.DEFINE_integer("batch_size", 16, "Size of the batch to train on.")
+flags.DEFINE_float("learning_rate", 5e-2, "Learning rate for the optimizer.")
 flags.DEFINE_integer("training_steps", 125000, "Number of training steps to run.")
 # flags.DEFINE_string("train_split", "90%", "How much of the training set to use.")
 # flags.DEFINE_boolean('prob_output', True, 'The encoder has or not a probabilistic output')
 flags.DEFINE_float("reg_value", 1e-6, "Regularization value of the KL Divergence.")
 flags.DEFINE_integer("gpu", 0, "Index of the GPU to use, e.g.: 0, 1, 2, etc.")
-flags.DEFINE_string(
-    "experiment", "model_1", "Type of experiment, e.g. 'model_1', 'model_2', etc."
-)
+# flags.DEFINE_string(
+#     "experiment", "model_1", "Type of experiment, e.g. 'model_1', 'model_2', etc."
+# )
 flags.DEFINE_string("project", "VAE-SD", "Name of the project, e.g.: 'VAE-SD'")
 flags.DEFINE_string(
-    "name", "first-model", "Name for the experiment, e.g.: 'dim_64_kl_0.01'"
+    "name", "test_Cosmos_Conv2", "Name for the experiment, e.g.: 'dim_64_kl_0.01'"
 )
 flags.DEFINE_string(
     "act_fn", "gelu", "Activation function, e.g.: 'gelu', 'leaky_relu', etc."
 )
-flags.DEFINE_string("opt", "adam", "Optimizer, e.g.: 'adam', 'adamw'")
+flags.DEFINE_string("opt", "adafactor", "Optimizer, e.g.: 'adam', 'adamw'")
 flags.DEFINE_integer("resblocks", 2, "Number of resnet blocks.: 1, 2.")
-flags.DEFINE_integer("step_sch", 40000, "Steps for the lr_schedule")
+flags.DEFINE_integer("step_sch", 50000, "Steps for the lr_schedule")
 
 FLAGS = flags.FLAGS
 
@@ -155,7 +155,7 @@ def main(_):
         """Function to define the loss function"""
 
         x = batch["image"]
-        kpsf_real = batch["kpsf_imag"]
+        kpsf_real = batch["kpsf_real"]
         kpsf_imag = batch["kpsf_imag"]
         kpsf = kpsf_real + 1j*kpsf_imag
         std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
@@ -381,7 +381,7 @@ def main(_):
     batch = next(test_iterator)
 
     x = batch["image"]
-    kpsf_real = batch["kpsf_imag"]
+    kpsf_real = batch["kpsf_real"]
     kpsf_imag = batch["kpsf_imag"]
     kpsf = kpsf_real + 1j*kpsf_imag
     std = 0.005*np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))

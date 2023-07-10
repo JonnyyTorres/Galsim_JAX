@@ -30,7 +30,7 @@ class CosmosConfig(tfds.core.BuilderConfig):
         pixel_scale: pixel scale of stamps in arcsec.
         **kwargs: keyword arguments forwarded to super.
         """
-        v1 = tfds.core.Version("0.0.1")
+        v1 = tfds.core.Version("0.0.2")
         super(CosmosConfig, self).__init__(
             description=(
                 "Cosmos stamps from %s sample in %d x %d resolution, %.2f arcsec/pixel."
@@ -47,9 +47,9 @@ class CosmosConfig(tfds.core.BuilderConfig):
 class Cosmos(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for Cosmos dataset."""
 
-    VERSION = tfds.core.Version("0.0.1")
+    VERSION = tfds.core.Version("0.0.2")
     RELEASE_NOTES = {
-        "0.0.1": "Initial release.",
+        "0.0.2": "Initial release.",
     }
 
     BUILDER_CONFIGS = [CosmosConfig(name="25.2", sample="25.2")]

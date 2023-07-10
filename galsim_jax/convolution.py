@@ -4,7 +4,7 @@
 
 import jax.numpy as jnp
 import jax
-
+import numpy as np
 
 def convolve(image, psf, return_Fourier=False):
     """Convolves given image by psf.
