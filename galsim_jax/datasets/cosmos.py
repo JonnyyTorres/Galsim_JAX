@@ -47,9 +47,9 @@ class CosmosConfig(tfds.core.BuilderConfig):
 class Cosmos(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for Cosmos dataset."""
 
-    VERSION = tfds.core.Version("0.0.2")
+    VERSION = tfds.core.Version("0.1.0")
     RELEASE_NOTES = {
-        "0.0.2": "Initial release.",
+        "0.1.0": "Initial release.",
     }
 
     BUILDER_CONFIGS = [CosmosConfig(name="25.2", sample="25.2")]
