@@ -31,3 +31,6 @@ test.ipynb
 
 # Ignore the train.sh file
 train.sh 
+
+# Ignore the create_dataset.py file
+create_dataset.py

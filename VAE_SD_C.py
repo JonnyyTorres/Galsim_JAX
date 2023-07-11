@@ -158,7 +158,8 @@ def main(_):
         kpsf_real = batch["kpsf_real"]
         kpsf_imag = batch["kpsf_imag"]
         kpsf = kpsf_real + 1j * kpsf_imag
-        std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
+        std = batch["noise_std"].reshape((-1, 1, 1, 1))
+        # std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
 
         # Autoencode an example
         q = Autoencoder.apply(params, x=x, seed=rng_key)
@@ -386,7 +387,8 @@ def main(_):
     kpsf_real = batch["kpsf_real"]
     kpsf_imag = batch["kpsf_imag"]
     kpsf = kpsf_real + 1j * kpsf_imag
-    std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
+    std = batch["noise_std"].reshape((-1, 1, 1, 1))
+    # std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
 
     # Taking 16 images as example
     batch = x[:16, ...]

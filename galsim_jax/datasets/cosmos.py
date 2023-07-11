@@ -30,7 +30,7 @@ class CosmosConfig(tfds.core.BuilderConfig):
         pixel_scale: pixel scale of stamps in arcsec.
         **kwargs: keyword arguments forwarded to super.
         """
-        v1 = tfds.core.Version("0.0.2")
+        v1 = tfds.core.Version("0.0.3")
         super(CosmosConfig, self).__init__(
             description=(
                 "Cosmos stamps from %s sample in %d x %d resolution, %.2f arcsec/pixel."
@@ -47,9 +47,9 @@ class CosmosConfig(tfds.core.BuilderConfig):
 class Cosmos(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for Cosmos dataset."""
 
-    VERSION = tfds.core.Version("0.0.2")
+    VERSION = tfds.core.Version("0.0.3")
     RELEASE_NOTES = {
-        "0.0.2": "Initial release.",
+        "0.0.3": "Initial release.",
     }
 
     BUILDER_CONFIGS = [CosmosConfig(name="25.2", sample="25.2")]
@@ -84,7 +84,7 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
                         ],
                         dtype=np.float32,
                     ),
-                    # "noise_std": tfds.features.Scalar(dtype=tf.float32),
+                    "noise_std": tfds.features.Scalar(dtype=tf.float32),
                 }
             ),
             # If there's a common (input, target) tuple from the
@@ -151,11 +151,11 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
             kpsf_real = kpsf.real
             kpsf_imag = kpsf.imag
 
-            # noise_std = np.sqrt(cosmos_gal.noise.getVariance())
+            noise_std = np.sqrt(cosmos_gal.noise.getVariance())
 
             yield "%d" % i, {
                 "image": cosmos_stamp,
                 "kpsf_real": kpsf_real,
                 "kpsf_imag": kpsf_imag,
-                # "noise_std": noise_std,
+                "noise_std": noise_std,
             }
