@@ -422,4 +422,5 @@ if __name__ == "__main__":
     # Set the CUDA_VISIBLE_DEVICES environment variable
     os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
     os.environ["XLA_FLAGS"] = "--xla_gpu_cuda_data_dir=/usr/local/cuda-12.1"
+    os.environ["XLA_FLAGS"] = "--xla_gpu_force_compilation_parallelism=1"
     app.run(main)
