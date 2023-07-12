@@ -150,6 +150,21 @@ def main(_):
     optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
     opt_state = optimizer.init(params)
 
+    def loglikelihood_fn(x, y, noise, type="Fourier"):
+        stamp_size = x.shape[1]
+        if type == "Fourier":
+            xp = jnp.fft.rfft2(x) / (jnp.sqrt(jnp.exp(noise)) + 0j) / stamp_size**2 * (2*jnp.pi)**2
+            yp = jnp.fft.rfft2(y) / (jnp.sqrt(jnp.exp(noise)) + 0j) / stamp_size**2 * (2*jnp.pi)**2
+            return - (0.5 * jnp.abs(xp - yp)**2).sum()
+            
+        elif type == "Pixel":
+            return - 0.5 * jnp.sum((x - y)**2) / noise**2
+
+        else:
+            raise NotImplementedError
+
+    loglikelihood_fn = jax.vmap(loglikelihood_fn)
+
     @jax.jit
     def loss_fn(params, rng_key, batch, reg_term):  # state, rng_key, batch):
         """Function to define the loss function"""
@@ -157,32 +172,31 @@ def main(_):
         x = batch["image"]
         kpsf_real = batch["kpsf_real"]
         kpsf_imag = batch["kpsf_imag"]
-        kpsf = kpsf_real + 1j * kpsf_imag
-        std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
+        ps = batch["ps"]
 
-        # Autoencode an example
-        q = Autoencoder.apply(params, x=x, seed=rng_key)
+        kpsf = kpsf_real + 1j * kpsf_imag
+        
+        # Autoencode an example 
+        q, log_prob, code = Autoencoder.apply(params, x=x, seed=rng_key)
 
         p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
 
-        p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
+        log_likelihood = loglikelihood_fn(x, p, ps)
 
-        # KL divergence between the prior distribution and p
-        kl = tfd.kl_divergence(
-            p, tfd.MultivariateNormalDiag(jnp.zeros((1, 128, 128, 1)))
-        )
+        # KL divergence between the p(z|x) and p(z)
+        prior = tfd.MultivariateNormalDiag(loc=jnp.zeros_like(code), scale_diag = [1.0])
+  
+        kl = (log_prob - prior.log_prob(code)).sum((-2, -1))
 
-        # Compute log-likelihood
-        log_likelihood = p.log_prob(x)
-
-        # Calculating the ELBO value
+        # Calculating the ELBO value applying a regularization factor on the KL term
         elbo = (
             log_likelihood - reg_term * kl
-        )  # Here we apply a regularization factor on the KL term
-
+        )  
+        
         loss = -jnp.mean(elbo)
+        
         return loss, -jnp.mean(log_likelihood)
 
     """    # Veryfing that the 'value_and_grad' works fine
@@ -386,29 +400,25 @@ def main(_):
     kpsf_real = batch["kpsf_real"]
     kpsf_imag = batch["kpsf_imag"]
     kpsf = kpsf_real + 1j * kpsf_imag
-    std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
-
+    
     # Taking 16 images as example
     batch = x[:16, ...]
     kpsf = kpsf[:16, ...]
-    std = std[:16, ...]
 
     rng, rng_1 = random.split(rng)
     # X estimated distribution
-    q = Autoencoder.apply(params, x=batch, seed=rng_1)
+
+    q, _, _ = Autoencoder.apply(params, x=batch, seed=rng_1)
+
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
 
     p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
-    p = tf.expand_dims(p, axis=-1)
-
-    p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
-
-    z = p.sample(seed=rng_1)
+    p = jnp.expand_dims(p, axis=-1)
 
     # Saving the samples of the predicted images and their difference from the original images
-    save_samples(folder_path=results_folder, z=z, batch=batch)
+    save_samples(folder_path=results_folder, decode=q, conv=p, batch=batch)
 
     wandb.finish()
 

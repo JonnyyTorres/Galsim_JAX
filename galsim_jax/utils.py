@@ -105,26 +105,30 @@ def save_plot_as_image(
     print(f"Plot saved as {file_path}")
 
 
-def save_samples(folder_path, z, batch):
+def save_samples(folder_path, decode, conv, batch):
     # Plotting the original, predicted and their differences for 8 examples
-    num_rows, num_cols = 8, 3
+    num_rows, num_cols = 8, 4
 
-    plt.figure(figsize=(9, 28))
+    plt.figure(figsize=(11, 32))
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(9, 24))
 
-    for i, (ax1, ax2, ax3) in enumerate(zip(axes[:, 0], axes[:, 1], axes[:, 2])):
+    for i, (ax1, ax2, ax3, ax4) in enumerate(zip(axes[:, 0], axes[:, 1], axes[:, 2], axes[:, 3])):
         batch_img = batch[i, ...]
-        z_img = z[i, ...]
+        decode_img = decode[i, ...]
+        conv_img = conv[i, ...]
 
         # Plotting original image
         ax1.imshow(batch_img.mean(axis=-1))
         ax1.axis("off")
         # Plotting predicted image
-        ax2.imshow(z_img.mean(axis=-1))
+        ax2.imshow(decode_img.mean(axis=-1))
         ax2.axis("off")
-        # Plotting difference between original and predicted image
-        ax3.imshow(z_img.mean(axis=-1) - batch_img.mean(axis=-1))
+        # Plotting predicted convolved image
+        ax3.imshow(conv_img.mean(axis=-1))
         ax3.axis("off")
+        # Plotting difference between original and predicted image
+        ax4.imshow(conv_img.mean(axis=-1) - batch_img.mean(axis=-1))
+        ax4.axis("off")
 
     # Add a title to the figure
     fig.suptitle(
@@ -147,8 +151,8 @@ def save_samples(folder_path, z, batch):
 
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(10, 10))
 
-    for ax, z_img in zip(axes.flatten(), z):
-        ax.imshow(z_img.mean(axis=-1))
+    for ax, decode_img in zip(axes.flatten(), decode):
+        ax.imshow(decode_img.mean(axis=-1))
         ax.axis("off")
 
     # Add a title to the figure
