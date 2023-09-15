@@ -24,7 +24,7 @@ def create_folder(folder_path="results"):
 
 def lr_schedule(step):
     """Linear scaling rule optimized for 90 epochs."""
-    steps_per_epoch = 50000 // 64
+    steps_per_epoch = 10000 // 28
 
     current_epoch = step / steps_per_epoch  # type: float
     boundaries = jnp.array((40, 80, 120)) * steps_per_epoch
@@ -151,8 +151,8 @@ def save_samples(folder_path, decode, conv, batch):
 
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(10, 10))
 
-    for ax, decode_img in zip(axes.flatten(), decode):
-        ax.imshow(decode_img.mean(axis=-1))
+    for ax, conv_img in zip(axes.flatten(), conv):
+        ax.imshow(conv_img.mean(axis=-1))
         ax.axis("off")
 
     # Add a title to the figure

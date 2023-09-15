@@ -414,10 +414,10 @@ class AutoencoderKLModule(nn.Module):
     def __call__(self, x, seed):
         posterior = self.encode(x)
 
-        h = posterior.sample(seed=seed)
-        print('h', h.shape)
-        log_prob = posterior.log_prob(h)
+        code = posterior.sample(seed=seed)
+
+        log_prob = posterior.log_prob(code)
         
-        q = self.decode(h)
+        q = self.decode(code)
         
-        return q, log_prob, h
+        return q, posterior, code
