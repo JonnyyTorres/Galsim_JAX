@@ -409,13 +409,15 @@ class AutoencoderKLModule(nn.Module):
     def decode(self, h):
         h = self.post_quant_conv(h)
         h = self.decoder(h)
-        # Image is now 64x64x5
-        # q = tfd.MultivariateNormalDiag(loc=h, scale_diag=[0.01, 0.01, 0.01, 0.01, 0.01])
-        return h  # q
+        return h
 
     def __call__(self, x, seed):
         posterior = self.encode(x)
-        h = posterior.sample(seed=seed)
-        q = self.decode(h)
 
-        return q  # , posterior
+        h = posterior.sample(seed=seed)
+        print('h', h.shape)
+        log_prob = posterior.log_prob(h)
+        
+        q = self.decode(h)
+        
+        return q, log_prob, h

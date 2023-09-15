@@ -47,9 +47,9 @@ class CosmosConfig(tfds.core.BuilderConfig):
 class Cosmos(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for Cosmos dataset."""
 
-    VERSION = tfds.core.Version("0.0.3")
+    VERSION = tfds.core.Version("0.1.0")
     RELEASE_NOTES = {
-        "0.0.3": "Initial release.",
+        "0.1.0": "Initial release.",
     }
 
     BUILDER_CONFIGS = [CosmosConfig(name="25.2", sample="25.2")]
@@ -85,6 +85,13 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
                         dtype=np.float32,
                     ),
                     "noise_std": tfds.features.Scalar(dtype=tf.float32),
+                    "ps": tfds.features.Tensor(
+                        shape=[
+                            self.builder_config.stamp_size,
+                            self.builder_config.stamp_size // 2 + 1,
+                        ],
+                        dtype=np.float32,
+                    ),
                 }
             ),
             # If there's a common (input, target) tuple from the
@@ -151,11 +158,45 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
             kpsf_real = kpsf.real
             kpsf_imag = kpsf.imag
 
+            # Pixel noise standard deviation
             noise_std = np.sqrt(cosmos_gal.noise.getVariance())
+            
+            # Noise power spectrum
+            # from
+            # https://github.com/ml4astro/galaxy2galaxy/blob/6d8b20722a5545c8c79a19cb67c6131c061763ed/galaxy2galaxy/data_generators/galsim_utils.py#L146
+            
+            bounds = _BoundsI(0, 
+                              self.builder_config.stamp_size//2, 
+                              -self.builder_config.stamp_size//2, 
+                              self.builder_config.stamp_size//2-1
+                              )
+            imG = cosmos_gal.drawKImage(bounds=bounds,
+                                    scale=2.*np.pi/(self.builder_config.stamp_size * self.builder_config.pixel_scale),
+                                    recenter=False)
+            mask = ~(np.fft.fftshift(imG.array, axes=0) == 0)
 
+            ps = cosmos_gal.noise._get_update_rootps((self.builder_config.stamp_size, self.builder_config.stamp_size), 
+                                        wcs=gs.PixelScale(self.builder_config.pixel_scale))
+
+            rt2 = np.sqrt(2.)
+            shape = (self.builder_config.stamp_size, self.builder_config.stamp_size)
+            ps[0, 0] = rt2 * ps[0, 0]
+            # Then make the changes necessary for even sized arrays
+            if shape[1] % 2 == 0:  # x dimension even
+                ps[0, shape[1] // 2] = rt2 * ps[0, shape[1] // 2]
+            if shape[0] % 2 == 0:  # y dimension even
+                ps[shape[0] // 2, 0] = rt2 * ps[shape[0] // 2, 0]
+                # Both dimensions even
+                if shape[1] % 2 == 0:
+                    ps[shape[0] // 2, shape[1] // 2] = rt2 * \
+                        ps[shape[0] // 2, shape[1] // 2]
+
+            ps = np.where(mask, np.log(ps**2), 10).astype('float32')
+            
             yield "%d" % i, {
                 "image": cosmos_stamp,
                 "kpsf_real": kpsf_real,
                 "kpsf_imag": kpsf_imag,
                 "noise_std": noise_std,
+                "ps": ps,
             }

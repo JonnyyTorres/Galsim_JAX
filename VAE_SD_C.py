@@ -21,7 +21,7 @@ from galsim_jax.utils import (
     get_git_commit_version,
     get_activation_fn,
     get_optimizer,
-    new_optimizer,
+    norm_values_one_diff,
 )
 
 from galsim_jax.convolution import convolve_kpsf
@@ -33,6 +33,8 @@ from astropy.stats import mad_std
 from tensorflow_probability.substrates import jax as tfp
 from flax import linen as nn  # Linen API
 from jax import random
+
+from functools import partial
 
 from tqdm.auto import tqdm
 from absl import app
@@ -63,6 +65,7 @@ flags.DEFINE_string(
 flags.DEFINE_string("opt", "adafactor", "Optimizer, e.g.: 'adam', 'adamw'")
 flags.DEFINE_integer("resblocks", 2, "Number of resnet blocks.: 1, 2.")
 flags.DEFINE_integer("step_sch", 50000, "Steps for the lr_schedule")
+flags.DEFINE_string("noise", "Pixel", "Type of noise, Fourier for correlated, Pixel white Gaussian noise")
 
 FLAGS = flags.FLAGS
 
@@ -127,7 +130,7 @@ def main(_):
 
     # Initializing the AutoEncoder
     Autoencoder = AutoencoderKLModule(
-        ch_mult=(1, 2, 4),
+        ch_mult=(1, 2, 4, 8, 16),
         num_res_blocks=FLAGS.resblocks,
         double_z=True,
         z_channels=1,
@@ -150,6 +153,25 @@ def main(_):
     optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
     opt_state = optimizer.init(params)
 
+    def loglikelihood_fn(x, y, noise, type="Pixel"):
+        stamp_size = x.shape[1]
+        if type == "Fourier":
+            print("in Fourier")
+            xp = jnp.fft.rfft2(x) / (jnp.sqrt(jnp.exp(noise)) + 0j) / stamp_size**2 * (2*jnp.pi)**2
+            yp = jnp.fft.rfft2(y) / (jnp.sqrt(jnp.exp(noise)) + 0j) / stamp_size**2 * (2*jnp.pi)**2
+            return - 0.5 * (jnp.abs(xp - yp)**2).sum()
+            
+        elif type == "Pixel":
+            print("in pixels")
+            # return - 0.5 * (jnp.abs(x - y)**2).sum() / noise**2
+            return - 0.5 * (jnp.abs(x - y)**2).sum() / 0.005**2
+
+        else:
+            raise NotImplementedError
+
+    loglikelihood_fn = partial(loglikelihood_fn, type=FLAGS.noise)
+    loglikelihood_fn = jax.vmap(loglikelihood_fn)
+
     @jax.jit
     def loss_fn(params, rng_key, batch, reg_term):  # state, rng_key, batch):
         """Function to define the loss function"""
@@ -157,33 +179,48 @@ def main(_):
         x = batch["image"]
         kpsf_real = batch["kpsf_real"]
         kpsf_imag = batch["kpsf_imag"]
+        ps = batch["ps"]
+        std = batch["noise_std"]
+
         kpsf = kpsf_real + 1j * kpsf_imag
-        std = batch["noise_std"].reshape((-1, 1, 1, 1))
-        # std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
+        
+        # Autoencode an example 
+        q, posterior, code = Autoencoder.apply(params, x=x, seed=rng_key)
 
-        # Autoencode an example
-        q = Autoencoder.apply(params, x=x, seed=rng_key)
-
+        log_prob = posterior.log_prob(code)
+       
         p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
+        # p = q
+        
+        if FLAGS.noise=="Fourier":
+            print("using the Fourier likelihood")
+            log_likelihood = loglikelihood_fn(x, p, ps)
+        elif FLAGS.noise=="Pixel":
+            print("using the Pixel likelihood")
+            log_likelihood = loglikelihood_fn(x, p, std)
+        else:
+            raise NotImplementedError
 
-        p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
+        print("log_likelihood", log_likelihood.shape)
 
-        # KL divergence between the prior distribution and p
-        kl = tfd.kl_divergence(
-            p, tfd.MultivariateNormalDiag(jnp.zeros((1, 128, 128, 1)))
-        )
+        # KL divergence between the p(z|x) and p(z)
+        prior = tfd.MultivariateNormalDiag(loc=jnp.zeros_like(code), scale_diag = [1.0])
+  
+        kl = (log_prob - prior.log_prob(code)).sum((-2, -1))
 
-        # Compute log-likelihood
-        log_likelihood = p.log_prob(x)
-
-        # Calculating the ELBO value
+        # Calculating the ELBO value applying a regularization factor on the KL term
         elbo = (
             log_likelihood - reg_term * kl
-        )  # Here we apply a regularization factor on the KL term
+        )  
 
+        print("ll", log_likelihood.shape)
+        print("kl", kl.shape)
+        print("elbo", elbo.shape)
+        
         loss = -jnp.mean(elbo)
+        
         return loss, -jnp.mean(log_likelihood)
 
     """    # Veryfing that the 'value_and_grad' works fine
@@ -233,6 +270,7 @@ def main(_):
     config.steps_schedule = FLAGS.step_sch
     # config.lr_method = "Warmup Cosine"
     config.interpolation = "Bicubic"
+    config.noise_method = FLAGS.noise
 
     # Define the metrics we are interested in the minimum of
     wandb.define_metric("loss", summary="min")
@@ -387,30 +425,28 @@ def main(_):
     kpsf_real = batch["kpsf_real"]
     kpsf_imag = batch["kpsf_imag"]
     kpsf = kpsf_real + 1j * kpsf_imag
-    std = batch["noise_std"].reshape((-1, 1, 1, 1))
-    # std = 0.005 * np.ones(x.shape[0], dtype=np.float32).reshape((-1, 1, 1, 1))
-
+    
     # Taking 16 images as example
     batch = x[:16, ...]
     kpsf = kpsf[:16, ...]
-    std = std[:16, ...]
 
     rng, rng_1 = random.split(rng)
     # X estimated distribution
-    q = Autoencoder.apply(params, x=batch, seed=rng_1)
+
+    q, _, _ = Autoencoder.apply(params, x=batch, seed=rng_1)
+
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
 
     p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
-    p = tf.expand_dims(p, axis=-1)
+    p = jnp.expand_dims(p, axis=-1)
 
-    p = tfd.MultivariateNormalDiag(loc=p, scale_diag=std)
-
-    z = p.sample(seed=rng_1)
+    min_value, max_value = norm_values_one_diff(batch, p, num_images=8)
 
     # Saving the samples of the predicted images and their difference from the original images
-    save_samples(folder_path=results_folder, z=z, batch=batch)
+    # save_samples(folder_path=results_folder, decode=q, conv=p, batch=batch)
+    save_samples(folder_path=results_folder, decode=q, conv=p, batch=batch, vmin=min_value, vmax=max_value)
 
     wandb.finish()
 
