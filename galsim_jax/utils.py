@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import subprocess
 import wandb
 import optax
+import numpy as np
 
 from flax.serialization import to_state_dict, msgpack_serialize, from_bytes
 from flax import linen as nn  # Linen API
@@ -24,7 +25,7 @@ def create_folder(folder_path="results"):
 
 def lr_schedule(step):
     """Linear scaling rule optimized for 90 epochs."""
-    steps_per_epoch = 50000 // 64
+    steps_per_epoch = 10000 // 28
 
     current_epoch = step / steps_per_epoch  # type: float
     boundaries = jnp.array((40, 80, 120)) * steps_per_epoch
@@ -105,12 +106,12 @@ def save_plot_as_image(
     print(f"Plot saved as {file_path}")
 
 
-def save_samples(folder_path, decode, conv, batch):
+def save_samples(folder_path, decode, conv, batch, vmin, vmax):
     # Plotting the original, predicted and their differences for 8 examples
     num_rows, num_cols = 8, 4
 
-    plt.figure(figsize=(11, 32))
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(9, 24))
+    plt.figure(figsize=(12, 24))
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 24))
 
     for i, (ax1, ax2, ax3, ax4) in enumerate(zip(axes[:, 0], axes[:, 1], axes[:, 2], axes[:, 3])):
         batch_img = batch[i, ...]
@@ -127,7 +128,7 @@ def save_samples(folder_path, decode, conv, batch):
         ax3.imshow(conv_img.mean(axis=-1))
         ax3.axis("off")
         # Plotting difference between original and predicted image
-        ax4.imshow(conv_img.mean(axis=-1) - batch_img.mean(axis=-1))
+        ax4.imshow(conv_img.mean(axis=-1) - batch_img.mean(axis=-1), vmin=vmin, vmax=vmax)
         ax4.axis("off")
 
     # Add a title to the figure
@@ -151,8 +152,8 @@ def save_samples(folder_path, decode, conv, batch):
 
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(10, 10))
 
-    for ax, decode_img in zip(axes.flatten(), decode):
-        ax.imshow(decode_img.mean(axis=-1))
+    for ax, conv_img in zip(axes.flatten(), conv):
+        ax.imshow(conv_img.mean(axis=-1))
         ax.axis("off")
 
     # Add a title to the figure
@@ -245,3 +246,19 @@ def new_optimizer(name):
         )
 
     return optimizer[name]
+
+def norm_values_one_diff(orig, inf1, num_images=8):
+    min_values = []
+    max_values = []
+
+    for i in range(num_images):
+        
+        orig_img = orig[i, ...]
+        inf1_img = inf1[i, ...]
+
+        diff_1 = inf1_img - orig_img 
+
+        min_values.append(diff_1.mean(axis=-1).min())
+        max_values.append(diff_1.mean(axis=-1).max())
+
+    return [np.min(min_values), np.max(max_values)]
