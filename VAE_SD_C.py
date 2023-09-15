@@ -208,7 +208,7 @@ def main(_):
         # KL divergence between the p(z|x) and p(z)
         prior = tfd.MultivariateNormalDiag(loc=jnp.zeros_like(code), scale_diag = [1.0])
   
-        kl = (log_prob - prior.log_prob(code))#.sum((-2, -1))
+        kl = (log_prob - prior.log_prob(code)).sum((-2, -1))
 
         # Calculating the ELBO value applying a regularization factor on the KL term
         elbo = (
@@ -438,9 +438,9 @@ def main(_):
     # Sample some variables from the posterior distribution
     rng, rng_1 = random.split(rng)
 
-    # p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
+    p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
-    # p = jnp.expand_dims(p, axis=-1)
+    p = jnp.expand_dims(p, axis=-1)
 
     min_value, max_value = norm_values_one_diff(batch, p, num_images=8)
 
