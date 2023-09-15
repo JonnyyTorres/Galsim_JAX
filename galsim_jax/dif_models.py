@@ -409,6 +409,7 @@ class AutoencoderKLModule(nn.Module):
     def decode(self, h):
         h = self.post_quant_conv(h)
         h = self.decoder(h)
+        h = nn.softplus(h)
         return h
 
     def __call__(self, x, seed):
