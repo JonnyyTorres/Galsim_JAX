@@ -30,7 +30,7 @@ class CosmosConfig(tfds.core.BuilderConfig):
         pixel_scale: pixel scale of stamps in arcsec.
         **kwargs: keyword arguments forwarded to super.
         """
-        v1 = tfds.core.Version("0.0.3")
+        v1 = tfds.core.Version("0.1.0")
         super(CosmosConfig, self).__init__(
             description=(
                 "Cosmos stamps from %s sample in %d x %d resolution, %.2f arcsec/pixel."
@@ -159,7 +159,7 @@ class Cosmos(tfds.core.GeneratorBasedBuilder):
             kpsf_imag = kpsf.imag
 
             # Pixel noise standard deviation
-            noise_std = np.sqrt(cosmos_gal.noise.getVariance())
+            noise_std = np.sqrt(cosmos_stamp.noise.getVariance())
             
             # Noise power spectrum
             # from
