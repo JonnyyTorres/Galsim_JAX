@@ -311,8 +311,8 @@ def main(_):
         if loss < best_eval_loss:
             best_eval_loss = loss
 
-            if best_eval_loss < 0:
-                save_checkpoint("checkpoint.msgpack", params, step)
+            # if best_eval_loss < 0:
+            save_checkpoint("checkpoint.msgpack", params, step)
 
         # Calculating the loss for all the test images
         if step % (config.steps // 50) == 0:
