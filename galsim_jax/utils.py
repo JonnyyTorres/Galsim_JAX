@@ -113,7 +113,9 @@ def save_samples(folder_path, decode, conv, batch, vmin, vmax):
     plt.figure(figsize=(12, 24))
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 24))
 
-    for i, (ax1, ax2, ax3, ax4) in enumerate(zip(axes[:, 0], axes[:, 1], axes[:, 2], axes[:, 3])):
+    for i, (ax1, ax2, ax3, ax4) in enumerate(
+        zip(axes[:, 0], axes[:, 1], axes[:, 2], axes[:, 3])
+    ):
         batch_img = batch[i, ...]
         decode_img = decode[i, ...]
         conv_img = conv[i, ...]
@@ -128,7 +130,9 @@ def save_samples(folder_path, decode, conv, batch, vmin, vmax):
         ax3.imshow(conv_img.mean(axis=-1))
         ax3.axis("off")
         # Plotting difference between original and predicted image
-        ax4.imshow(conv_img.mean(axis=-1) - batch_img.mean(axis=-1), vmin=vmin, vmax=vmax)
+        ax4.imshow(
+            conv_img.mean(axis=-1) - batch_img.mean(axis=-1), vmin=vmin, vmax=vmax
+        )
         ax4.axis("off")
 
     # Add a title to the figure
@@ -247,18 +251,51 @@ def new_optimizer(name):
 
     return optimizer[name]
 
+
 def norm_values_one_diff(orig, inf1, num_images=8):
     min_values = []
     max_values = []
 
     for i in range(num_images):
-        
         orig_img = orig[i, ...]
         inf1_img = inf1[i, ...]
 
-        diff_1 = inf1_img - orig_img 
+        diff_1 = inf1_img - orig_img
 
         min_values.append(diff_1.mean(axis=-1).min())
         max_values.append(diff_1.mean(axis=-1).max())
 
     return [np.min(min_values), np.max(max_values)]
+
+
+def plot_examples(images, plt_title, plt_label, wandb_name):
+    # Plotting the original, predicted and their differences for 8 examples
+    num_rows, num_cols = 4, 8
+
+    plt.figure(figsize=(14.5, 8))
+
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(14.5, 8))
+
+    for ax, z_img in zip(axes.flatten(), images):
+        ax.imshow(z_img)
+        ax.axis("off")
+
+    # Add a title to the figure
+    fig.suptitle(plt_title, fontsize=12, y=0.99)
+
+    # Adjust the layout of the subplots
+    fig.tight_layout()
+
+    cb_ax = fig.add_axes([1.005, 0.03, 0.015, 0.90])
+    fig.colorbar(ax.imshow(z_img), label=plt_label, orientation="vertical", cax=cb_ax)
+    wandb.log({wandb_name: wandb.Image(plt)})
+    plt.close(fig)
+
+
+def load_checkpoint_wandb(wandb_id, ckpt_file, state):
+    """Loads the best Wandb checkpoint."""
+    artifact_dir = f"artifacts/{wandb_id}-checkpoint:best/"
+    ckpt_path = os.path.join(artifact_dir, ckpt_file)
+    with open(ckpt_path, "rb") as data_file:
+        byte_data = data_file.read()
+    return from_bytes(state, byte_data)
