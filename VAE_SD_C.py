@@ -22,6 +22,7 @@ from galsim_jax.utils import (
     get_activation_fn,
     get_optimizer,
     norm_values_one_diff,
+    new_optimizer,
 )
 
 from galsim_jax.convolution import convolve_kpsf
@@ -65,7 +66,14 @@ flags.DEFINE_string(
 flags.DEFINE_string("opt", "adafactor", "Optimizer, e.g.: 'adam', 'adamw'")
 flags.DEFINE_integer("resblocks", 2, "Number of resnet blocks.: 1, 2.")
 flags.DEFINE_integer("step_sch", 50000, "Steps for the lr_schedule")
-flags.DEFINE_string("noise", "Pixel", "Type of noise, Fourier for correlated, Pixel white Gaussian noise")
+flags.DEFINE_string(
+    "noise",
+    "Pixel",
+    "Type of noise, Fourier for correlated, Pixel white Gaussian noise",
+)
+flags.DEFINE_float(
+    "alpha", 0.0001, "Coefficient of reduction of initial learning rate"
+)
 
 FLAGS = flags.FLAGS
 
@@ -150,21 +158,33 @@ def main(_):
     rng_1, rng_2 = jax.random.split(rng_2)
 
     # Initialisation
-    optimizer = get_optimizer(FLAGS.opt, FLAGS.learning_rate, FLAGS.step_sch)
+    optimizer = new_optimizer(
+        FLAGS.opt, FLAGS.learning_rate, FLAGS.alpha, FLAGS.training_steps
+    )
     opt_state = optimizer.init(params)
 
     def loglikelihood_fn(x, y, noise, type="Pixel"):
         stamp_size = x.shape[1]
         if type == "Fourier":
             print("in Fourier")
-            xp = jnp.fft.rfft2(x) / (jnp.sqrt(jnp.exp(noise)) + 0j) / stamp_size**2 * (2*jnp.pi)**2
-            yp = jnp.fft.rfft2(y) / (jnp.sqrt(jnp.exp(noise)) + 0j) / stamp_size**2 * (2*jnp.pi)**2
-            return - 0.5 * (jnp.abs(xp - yp)**2).sum()
-            
+            xp = (
+                jnp.fft.rfft2(x)
+                / (jnp.sqrt(jnp.exp(noise)) + 0j)
+                / stamp_size**2
+                * (2 * jnp.pi) ** 2
+            )
+            yp = (
+                jnp.fft.rfft2(y)
+                / (jnp.sqrt(jnp.exp(noise)) + 0j)
+                / stamp_size**2
+                * (2 * jnp.pi) ** 2
+            )
+            return -0.5 * (jnp.abs(xp - yp) ** 2).sum()
+
         elif type == "Pixel":
             print("in pixels")
             # return - 0.5 * (jnp.abs(x - y)**2).sum() / noise**2
-            return - 0.5 * (jnp.abs(x - y)**2).sum() / 0.005**2
+            return -0.5 * (jnp.abs(x - y) ** 2).sum() / 0.005**2
 
         else:
             raise NotImplementedError
@@ -183,21 +203,21 @@ def main(_):
         std = batch["noise_std"]
 
         kpsf = kpsf_real + 1j * kpsf_imag
-        
-        # Autoencode an example 
+
+        # Autoencode an example
         q, posterior, code = Autoencoder.apply(params, x=x, seed=rng_key)
 
         log_prob = posterior.log_prob(code)
-       
+
         p = jax.vmap(convolve_kpsf)(q[..., 0], kpsf[..., 0])
 
         p = jnp.expand_dims(p, axis=-1)
         # p = q
-        
-        if FLAGS.noise=="Fourier":
+
+        if FLAGS.noise == "Fourier":
             print("using the Fourier likelihood")
             log_likelihood = loglikelihood_fn(x, p, ps)
-        elif FLAGS.noise=="Pixel":
+        elif FLAGS.noise == "Pixel":
             print("using the Pixel likelihood")
             log_likelihood = loglikelihood_fn(x, p, std)
         else:
@@ -206,21 +226,19 @@ def main(_):
         print("log_likelihood", log_likelihood.shape)
 
         # KL divergence between the p(z|x) and p(z)
-        prior = tfd.MultivariateNormalDiag(loc=jnp.zeros_like(code), scale_diag = [1.0])
-  
+        prior = tfd.MultivariateNormalDiag(loc=jnp.zeros_like(code), scale_diag=[1.0])
+
         kl = (log_prob - prior.log_prob(code)).sum((-2, -1))
 
         # Calculating the ELBO value applying a regularization factor on the KL term
-        elbo = (
-            log_likelihood - reg_term * kl
-        )  
+        elbo = log_likelihood - reg_term * kl
 
         print("ll", log_likelihood.shape)
         print("kl", kl.shape)
         print("elbo", elbo.shape)
-        
+
         loss = -jnp.mean(elbo)
-        
+
         return loss, -jnp.mean(log_likelihood)
 
     """    # Veryfing that the 'value_and_grad' works fine
@@ -268,9 +286,10 @@ def main(_):
     config.opt = FLAGS.opt
     config.resnet_blocks = FLAGS.resblocks
     config.steps_schedule = FLAGS.step_sch
-    # config.lr_method = "Warmup Cosine"
+    config.scheduler = "Cosine Decay"
     config.interpolation = "Bicubic"
     config.noise_method = FLAGS.noise
+    config.alpha = FLAGS.alpha
 
     # Define the metrics we are interested in the minimum of
     wandb.define_metric("loss", summary="min")
@@ -425,7 +444,7 @@ def main(_):
     kpsf_real = batch["kpsf_real"]
     kpsf_imag = batch["kpsf_imag"]
     kpsf = kpsf_real + 1j * kpsf_imag
-    
+
     # Taking 16 images as example
     batch = x[:16, ...]
     kpsf = kpsf[:16, ...]
@@ -446,7 +465,14 @@ def main(_):
 
     # Saving the samples of the predicted images and their difference from the original images
     # save_samples(folder_path=results_folder, decode=q, conv=p, batch=batch)
-    save_samples(folder_path=results_folder, decode=q, conv=p, batch=batch, vmin=min_value, vmax=max_value)
+    save_samples(
+        folder_path=results_folder,
+        decode=q,
+        conv=p,
+        batch=batch,
+        vmin=min_value,
+        vmax=max_value,
+    )
 
     wandb.finish()
 
