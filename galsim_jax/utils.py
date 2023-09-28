@@ -230,18 +230,15 @@ def get_optimizer(name, lr, num_steps):
     return optimizer[name]
 
 
-def new_optimizer(name):
-    schedule = optax.warmup_cosine_decay_schedule(
-        init_value=0.0,
-        peak_value=1.0,
-        warmup_steps=5_000,
-        decay_steps=95_000,
-        end_value=0.0,
+def new_optimizer(name, init_lr, alpha, total_steps):
+    schedule = optax.cosine_decay_schedule(
+        init_lr, decay_steps=total_steps, alpha=alpha
     )
 
     optimizer = {
-        "adam": optax.chain(optax.clip(1.0), optax.adam(learning_rate=schedule)),
-        "adamw": optax.chain(optax.clip(1.0), optax.adamw(learning_rate=schedule)),
+        "adam": optax.adam(learning_rate=schedule),
+        "adamw": optax.adamw(learning_rate=schedule),
+        "adafactor": optax.adafactor(learning_rate=schedule),
     }
 
     if name not in optimizer:
@@ -299,3 +296,11 @@ def load_checkpoint_wandb(wandb_id, ckpt_file, state):
     with open(ckpt_path, "rb") as data_file:
         byte_data = data_file.read()
     return from_bytes(state, byte_data)
+
+
+# def lr_storage(init_lr, total_steps, alpha, epoch):
+#     schedule = optax.cosine_decay_schedule(
+#         init_lr, decay_steps=total_steps, alpha=alpha
+#     )
+
+#     return schedule(epoch)
