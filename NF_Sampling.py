@@ -213,7 +213,7 @@ def main(_):
     sampler = NeuralSplineFlowSampler()
 
     # Obtaining the id for the best NF experiment
-    id_run = "53oggvli"
+    id_run = "aq9fnxzc"
 
     # Downloading best checkpoint params
     run = api.run("jonnyytorres/NF_experiments/{}".format(id_run))
